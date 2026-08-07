@@ -1,19 +1,25 @@
-"""WSGI entrypoint for `POST /api/uber-route/recommend` (contracts/bs_uber_route_service.md).
+"""WSGI entrypoint for the frontend (`GET /`) and `POST /api/uber-route/recommend`
+(contracts/bs_uber_route_service.md).
 
 Deployed as an IRIS-native WSGI Web Application (IRIS 2024.2+, research.md §2). On each
-request, injects the validated JSON payload into the running production via
+API request, injects the validated JSON payload into the running production via
 `director.create_business_service(...).process_input(...)` — BS_UberRouteService is
 adapterless, so this WSGI callable *is* its inbound adapter (constitution Principle I:
 "expose its interface via the WSGI protocol").
+
+The frontend (`static/index.html`) is a single self-contained page — no build step, no
+framework — served directly from disk. It only talks to `/api/uber-route/recommend`.
 """
 from __future__ import annotations
 
 import json
+import os
 import uuid
 
 from intersystems_pyprod import director
 
 _SERVICE_CLASS = "UberRoute.BS_UberRouteService"
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 _STATUS_BY_ERROR_CODE = {
     "invalid_request": "400 Bad Request",
@@ -23,7 +29,17 @@ _STATUS_BY_ERROR_CODE = {
 
 
 def application(environ, start_response):
-    if environ.get("REQUEST_METHOD") != "POST":
+    path = environ.get("PATH_INFO", "/")
+    method = environ.get("REQUEST_METHOD")
+
+    if method == "GET" and path in ("/", "/index.html"):
+        return _serve_index(start_response)
+
+    if path != "/api/uber-route/recommend":
+        return _respond(start_response, "404 Not Found",
+                         {"error": "not_found", "message": f"No route for {path}"})
+
+    if method != "POST":
         return _respond(start_response, "405 Method Not Allowed",
                          {"error": "method_not_allowed", "message": "Use POST"})
 
@@ -53,6 +69,7 @@ def application(environ, start_response):
     body_dict = {
         "trip_request_id": getattr(response, "trip_request_id", 0),
         "recommended_time": response.recommended_time,
+        "estimated_arrival_time": response.estimated_arrival_time,
         "estimated_fare": response.estimated_fare,
         "delta_minutes": response.delta_minutes,
         "waiting_place_suggested": response.waiting_place_suggested,
@@ -79,4 +96,17 @@ def application(environ, start_response):
 def _respond(start_response, status: str, body_dict: dict):
     body = json.dumps(body_dict).encode("utf-8")
     start_response(status, [("Content-Type", "application/json"), ("Content-Length", str(len(body)))])
+    return [body]
+
+
+def _serve_index(start_response):
+    index_path = os.path.join(_STATIC_DIR, "index.html")
+    try:
+        with open(index_path, "rb") as f:
+            body = f.read()
+    except OSError:
+        return _respond(start_response, "500 Internal Server Error",
+                         {"error": "static_missing", "message": "index.html not found"})
+    start_response("200 OK", [("Content-Type", "text/html; charset=utf-8"),
+                               ("Content-Length", str(len(body)))])
     return [body]

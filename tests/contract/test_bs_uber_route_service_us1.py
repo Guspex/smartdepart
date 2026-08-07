@@ -16,6 +16,7 @@ def _call(body: dict, method: str = "POST"):
     body_bytes = json.dumps(body).encode("utf-8") if body is not None else b""
     environ = {
         "REQUEST_METHOD": method,
+        "PATH_INFO": "/api/uber-route/recommend",
         "CONTENT_LENGTH": str(len(body_bytes)),
         "wsgi.input": BytesIO(body_bytes),
     }
@@ -35,6 +36,16 @@ def _stub_service(response):
     return "1", service
 
 
+def test_get_root_serves_the_frontend_html():
+    environ = {"REQUEST_METHOD": "GET", "PATH_INFO": "/"}
+    captured = {}
+    result = application(environ, lambda s, h: captured.update(status=s, headers=h))
+    body = b"".join(result).decode("utf-8")
+    assert captured["status"].startswith("200")
+    assert any(name == "Content-Type" and "text/html" in value for name, value in captured["headers"])
+    assert "<form" in body
+
+
 def test_wrong_method_returns_405():
     status, payload = _call({"origin": "A", "destination": "B", "target_time": "18:00"},
                              method="GET")
@@ -44,6 +55,7 @@ def test_wrong_method_returns_405():
 def test_malformed_json_returns_400():
     environ = {
         "REQUEST_METHOD": "POST",
+        "PATH_INFO": "/api/uber-route/recommend",
         "CONTENT_LENGTH": "9",
         "wsgi.input": BytesIO(b"not-json!"),
     }
@@ -83,6 +95,7 @@ def test_delta_leq_30_min_returns_200_with_no_waiting_place():
         error_code="",
         trip_request_id=1,
         recommended_time="18:05",
+        estimated_arrival_time="18:30",
         estimated_fare=27.90,
         delta_minutes=5,
         waiting_place_suggested=False,

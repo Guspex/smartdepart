@@ -13,6 +13,7 @@ def _call(body: dict):
     body_bytes = json.dumps(body).encode("utf-8")
     environ = {
         "REQUEST_METHOD": "POST",
+        "PATH_INFO": "/api/uber-route/recommend",
         "CONTENT_LENGTH": str(len(body_bytes)),
         "wsgi.input": BytesIO(body_bytes),
     }
@@ -30,6 +31,7 @@ def test_delta_gt_30_min_with_waiting_place_found():
         error_code="",
         trip_request_id=2,
         recommended_time="19:20",
+        estimated_arrival_time="19:50",
         estimated_fare=19.50,
         delta_minutes=50,
         waiting_place_suggested=True,
@@ -57,6 +59,7 @@ def test_delta_gt_30_min_but_no_waiting_place_available():
         error_code="",
         trip_request_id=3,
         recommended_time="19:20",
+        estimated_arrival_time="19:50",
         estimated_fare=19.50,
         delta_minutes=50,
         waiting_place_suggested=True,

@@ -28,6 +28,7 @@ class RouteRecommendationMessage(JsonSerialize):
 
     trip_request_id: int = Column(default=0, datatype="%Integer")
     recommended_time: str = Column(default="", datatype="%VarString")
+    estimated_arrival_time: str = Column(default="", datatype="%VarString")
     estimated_fare: float = Column(default=0.0, datatype="%Numeric")
     delta_minutes: int = Column(default=0, datatype="%Integer")
     waiting_place_suggested: bool = Column(default=False, datatype="%Boolean")

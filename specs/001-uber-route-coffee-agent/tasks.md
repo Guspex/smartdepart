@@ -267,3 +267,32 @@ With multiple developers, after Foundational completes:
   plain Python `abs(delta_minutes) > 30` check in `BP_RouteOrchestrator` is an acceptable
   fallback that can be adopted by editing this task directly — no constitution amendment
   procedure is required, since no principle is at stake either way.
+
+---
+
+## Post-MVP Addition: Frontend + arrival-time semantics (ad hoc, not run through /speckit-specify)
+
+Requested directly by the user after T001-T044 shipped: a simple web form, and a
+clarification that `target_time` means the rider's **arrival deadline**, not a departure
+time. Tracked here rather than renumbering T001-T044.
+
+- [X] T045 Reinterpret `target_time` as an arrival deadline in `BP_RouteOrchestrator`: added
+  `_congestion_factor()` (queries `UberRoute.TrafficWeatherReference`, finally giving that
+  table a real caller) and `_estimate_travel_minutes()`; candidate departure times are now
+  scanned around a computed "naive departure" (arrival minus typical-traffic travel time)
+  instead of around the raw `target_time`. Added `estimated_arrival_time` to
+  `RouteRecommendationMessage` and the WSGI response. Covered by
+  `tests/unit/test_arrival_time_semantics.py` (3/3 passing) and updated
+  `tests/integration/test_user_story_2.py` (fare mock made baseline-agnostic). Updated
+  spec.md Assumptions, data-model.md, and contracts/bs_uber_route_service.md to match.
+- [X] T046 [P] Build `production/wsgi/static/index.html` — a single self-contained page (no
+  build step, no framework, per user's explicit choice): origin/destination text fields,
+  arrival-time picker, calls `POST /api/uber-route/recommend`, renders the recommendation
+  and (when present) the waiting-place card or unavailability message. Verified visually in
+  a browser (form fill, submit loading state, and the network-error path all render
+  correctly); the success-rendering path was not exercised against a live response, since
+  no deployed WSGI production is reachable in this environment (see T041).
+- [X] T047 [P] Route `production/wsgi/app.py` by `PATH_INFO`: `GET /` and `GET /index.html`
+  serve the static page; `POST /api/uber-route/recommend` keeps its existing contract;
+  anything else returns 404. Added `test_get_root_serves_the_frontend_html` and fixed the
+  existing contract tests, which hadn't been setting `PATH_INFO` (all 32 tests still pass).

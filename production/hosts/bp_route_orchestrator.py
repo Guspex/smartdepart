@@ -1,6 +1,15 @@
 """BP_RouteOrchestrator — orchestrates the IntegratedML fare prediction and (when the
 Business Rule fires) the hybrid RAG waiting-place lookup for one trip request.
 
+`target_time` is the rider's **arrival deadline** (e.g. "I need to be at my meeting by
+14:00"), not a departure time. This host works backwards from it: it estimates a naive
+departure time (arrival minus estimated travel time, using UberRoute.TrafficWeatherReference
+congestion for that hour), then scans nearby candidate departure times — each with its own
+congestion-adjusted travel-time estimate — picking whichever is cheapest per
+`FarePredictor`. `delta_minutes` is the gap between that chosen departure and the naive
+one: a large gap means the rider must leave much earlier (or later) than they'd naively
+expect, which is exactly when a waiting place is useful (FR-005/FR-006).
+
 Owns the request/response shape defined in contracts/bs_uber_route_service.md: it always
 returns a time/fare recommendation (FR-003), and only attaches a waiting-place suggestion
 when `business_rules.waiting_place_should_be_suggested()` says so (FR-005/FR-006).
@@ -16,11 +25,17 @@ from intersystems_pyprod import BusinessProcess
 
 iris_package_name = "UberRoute"
 
-# Minutes offset from the requested time to try as candidate departure times.
+# Minutes offset from the naive departure time to try as candidate departure times.
 _CANDIDATE_OFFSETS_MINUTES = [0, -30, -15, 15, 30, 45, 60]
 
 # Waiting-place lookup radius (spec Assumptions: ~1 km comfortable walking distance).
 _WAITING_PLACE_RADIUS_KM = 1.0
+
+# Baseline urban travel speed used to turn distance into a travel-time estimate, before
+# the TrafficWeatherReference congestion factor is applied (research.md; no live traffic
+# API is used, per the constitution's Data & External Integration Standards).
+_BASE_SPEED_KMH = 25.0
+_DEFAULT_CONGESTION_FACTOR = 1.0
 
 
 def _parse_hhmm(value: str) -> Optional[tuple[int, int]]:
@@ -60,6 +75,32 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r_km * math.asin(math.sqrt(a))
 
 
+def _congestion_factor(hour: int, day_of_week: int) -> float:
+    """Reads UberRoute.TrafficWeatherReference (the Foreign Table / native fallback
+    populated by sql/003_foreign_tables.sql or sql/003b) for this hour/day slot. Falls
+    back to a neutral 1.0 if no row matches or the table isn't reachable — a missing
+    traffic reading should degrade the duration estimate, not fail the whole request."""
+    try:
+        rs = iris.sql.exec(
+            "SELECT CongestionFactor FROM UberRoute.TrafficWeatherReference "
+            "WHERE HourOfDay = ? AND DayOfWeek = ?",
+            hour,
+            day_of_week,
+        )
+        for row in rs:
+            if row[0] is not None:
+                return float(row[0])
+    except Exception:  # noqa: BLE001 — traffic reference is an enhancement, not a hard dependency
+        pass
+    return _DEFAULT_CONGESTION_FACTOR
+
+
+def _estimate_travel_minutes(distance_km: float, hour: int, day_of_week: int) -> int:
+    congestion = _congestion_factor(hour, day_of_week)
+    hours = (distance_km / _BASE_SPEED_KMH) * congestion
+    return max(1, round(hours * 60))
+
+
 class BP_RouteOrchestrator(BusinessProcess):
     def on_request(self, request):
         from production.adapters.geocoding_adapter import geocode
@@ -76,8 +117,8 @@ class BP_RouteOrchestrator(BusinessProcess):
                    origin=request.origin, destination=request.destination,
                    target_time=request.target_time)
 
-        target = _parse_hhmm(request.target_time)
-        if target is None:
+        arrival = _parse_hhmm(request.target_time)
+        if arrival is None:
             response = RouteRecommendationMessage(
                 error_code="invalid_request", error_message="target_time must be HH:MM"
             )
@@ -102,11 +143,17 @@ class BP_RouteOrchestrator(BusinessProcess):
         )
         day_of_week = datetime.now().isoweekday()
 
+        # Naive departure: "if traffic at my arrival hour is typical, when would I need
+        # to leave to arrive right on time?" — the baseline candidate offsets are scanned
+        # around this, not around the arrival time itself.
+        naive_duration = _estimate_travel_minutes(distance_km, arrival[0], day_of_week)
+        naive_departure = _add_minutes(arrival[0], arrival[1], -naive_duration)
+
         best_time: Optional[tuple[int, int]] = None
         best_fare: Optional[float] = None
         last_error = ""
         for offset in _CANDIDATE_OFFSETS_MINUTES:
-            candidate = _add_minutes(target[0], target[1], offset)
+            candidate = _add_minutes(naive_departure[0], naive_departure[1], offset)
             candidate_str = _format_hhmm(*candidate)
             query = FarePredictionQueryMessage(
                 session_id=session_id,
@@ -134,13 +181,17 @@ class BP_RouteOrchestrator(BusinessProcess):
             )
             return self.OKStatus(), response
 
-        delta_minutes = abs(_minutes_between(best_time, target))
+        delta_minutes = abs(_minutes_between(best_time, naive_departure))
         triggered = waiting_place_should_be_suggested(delta_minutes)
         log_event("BP_RouteOrchestrator", "rule_outcome", session_id=session_id,
                    delta_minutes=delta_minutes, waiting_place_triggered=triggered)
 
+        chosen_duration = _estimate_travel_minutes(distance_km, best_time[0], day_of_week)
+        estimated_arrival = _add_minutes(best_time[0], best_time[1], chosen_duration)
+
         response = RouteRecommendationMessage(
             recommended_time=_format_hhmm(*best_time),
+            estimated_arrival_time=_format_hhmm(*estimated_arrival),
             estimated_fare=round(best_fare, 2),
             delta_minutes=delta_minutes,
             waiting_place_suggested=triggered,

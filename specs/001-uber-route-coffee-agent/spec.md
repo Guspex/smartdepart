@@ -168,6 +168,14 @@ from other candidate places.
 
 ## Assumptions
 
+- **Clarified (post-implementation)**: the rider's "desired time" throughout this document
+  is their **arrival deadline** — e.g. "I need to be at my meeting by 14:00" — not a
+  departure time. The system works backwards from it: it estimates a typical-traffic
+  departure time for that arrival, then recommends whichever nearby departure time is
+  cheapest; "30 minutes" (FR-005/FR-006) is measured against that typical-traffic baseline,
+  not against the raw arrival time itself. `recommended_time` in every response is always a
+  departure time; `estimated_arrival_time` is the system's estimate of when that departure
+  gets the rider there.
 - "Best time/fare" means minimizing the rider's cost (e.g., avoiding surge/peak pricing)
   while staying within a reasonable window of the requested time — not simply the fastest
   possible pickup. This is a recommendation to help the rider decide when to travel, not an

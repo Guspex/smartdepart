@@ -1,13 +1,22 @@
 # Uber Route & Coffee Recommendation Agent
 
 A PyProd (InterSystems IRIS Interoperability, pure Python) production that recommends a
-trip's best departure time/fare and, when that recommendation is more than 30 minutes
-from what the rider asked for, suggests a nearby café or coworking space to wait at.
+trip's best departure time/fare given an **arrival deadline** (e.g. "I need to be there
+by 14:00") and, when that recommendation means leaving much earlier or later than a rider
+would naively expect, suggests a nearby café or coworking space to wait at.
 
 Full spec/plan/research: [specs/001-uber-route-coffee-agent/](specs/001-uber-route-coffee-agent/).
 This file documents the RAG architecture per the project's deliverables requirement
 ("Documentação explicativa sobre a estratégia de Chunking, escolha do Modelo de
 Embeddings e arquitetura de componentes").
+
+## Frontend
+
+`production/wsgi/static/index.html` — a single self-contained page (no build step, no
+framework) served by the same WSGI app at `GET /`. Origin, destination, and "what time do
+you need to arrive" go in; the page calls `POST /api/uber-route/recommend` and renders the
+recommended departure time, estimated arrival, fare, and (when triggered) the waiting-place
+card. See tasks.md's "Post-MVP Addition" section for what was and wasn't verified live.
 
 ## Architecture
 

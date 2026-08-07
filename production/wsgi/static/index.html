@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Uber Route &amp; Coffee Agent</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #131a22;
+    --panel-border: #232c37;
+    --text: #e7edf3;
+    --muted: #93a1b0;
+    --accent: #35c48f;
+    --accent-dark: #1f8f65;
+    --error: #ff6b6b;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at top, #16202b, var(--bg));
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px 64px;
+  }
+  main { width: 100%; max-width: 480px; }
+  h1 {
+    font-size: 1.4rem;
+    margin: 0 0 4px;
+  }
+  p.subtitle {
+    color: var(--muted);
+    margin: 0 0 28px;
+    font-size: 0.9rem;
+  }
+  form {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  label {
+    font-size: 0.82rem;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 6px;
+  }
+  input {
+    width: 100%;
+    background: #0e141b;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 11px 12px;
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  button {
+    margin-top: 4px;
+    background: var(--accent);
+    color: #04140d;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover:not(:disabled) { background: var(--accent-dark); color: var(--text); }
+  button:disabled { opacity: 0.6; cursor: default; }
+
+  #result { margin-top: 20px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  .row .label { color: var(--muted); font-size: 0.88rem; }
+  .row .value { font-weight: 600; font-size: 1.05rem; }
+  .row .value.big { font-size: 1.4rem; color: var(--accent); }
+
+  .place-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 2px; }
+  .place-address { color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
+  .place-meta { display: flex; gap: 14px; font-size: 0.85rem; color: var(--muted); margin-bottom: 10px; }
+  .rationale {
+    font-size: 0.85rem;
+    color: var(--text);
+    background: #0e141b;
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    border-radius: 4px;
+  }
+
+  .error-card {
+    border-color: var(--error);
+    color: var(--error);
+    font-size: 0.9rem;
+  }
+  .hint { color: var(--muted); font-size: 0.82rem; margin-top: 8px; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(4,20,13,0.35); border-top-color: #04140d;
+    border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Para onde vamos?</h1>
+  <p class="subtitle">
+    Diga de onde você sai, para onde vai, e a que horas precisa chegar —
+    calculamos o melhor horário de saída e, se sobrar muito tempo, sugerimos
+    um café pertinho pra esperar.
+  </p>
+
+  <form id="trip-form">
+    <div>
+      <label for="origin">Sua localização (origem)</label>
+      <input id="origin" name="origin" type="text" placeholder="Av. Paulista, 1000, São Paulo" required />
+    </div>
+    <div>
+      <label for="destination">Destino</label>
+      <input id="destination" name="destination" type="text" placeholder="Aeroporto de Congonhas, São Paulo" required />
+    </div>
+    <div>
+      <label for="target_time">Horário que você precisa chegar</label>
+      <input id="target_time" name="target_time" type="time" required />
+    </div>
+    <button id="submit-btn" type="submit">Calcular melhor horário</button>
+  </form>
+
+  <div id="result"></div>
+</main>
+
+<script>
+(function () {
+  var form = document.getElementById("trip-form");
+  var resultEl = document.getElementById("result");
+  var submitBtn = document.getElementById("submit-btn");
+
+  var ERROR_MESSAGES = {
+    invalid_request: "Verifique os campos preenchidos.",
+    location_not_found: "Não conseguimos localizar um dos endereços informados.",
+    prediction_unavailable: "Não foi possível calcular a recomendação agora. Tente novamente em instantes.",
+    service_unavailable: "Serviço indisponível no momento.",
+    method_not_allowed: "Erro interno do formulário.",
+  };
+
+  function escapeHtml(value) {
+    var div = document.createElement("div");
+    div.textContent = value == null ? "" : String(value);
+    return div.innerHTML;
+  }
+
+  function renderError(message) {
+    resultEl.innerHTML =
+      '<div class="card error-card">' + escapeHtml(message) + "</div>";
+  }
+
+  function renderResult(data) {
+    var html = "";
+
+    html += '<div class="card">';
+    html += "<h2>Recomendação de viagem</h2>";
+    html += '<div class="row"><span class="label">Saia às</span><span class="value big">' +
+      escapeHtml(data.recommended_time) + "</span></div>";
+    if (data.estimated_arrival_time) {
+      html += '<div class="row"><span class="label">Chegada estimada</span><span class="value">' +
+        escapeHtml(data.estimated_arrival_time) + "</span></div>";
+    }
+    html += '<div class="row"><span class="label">Tarifa estimada</span><span class="value">R$ ' +
+      Number(data.estimated_fare).toFixed(2) + "</span></div>";
+    html += "</div>";
+
+    if (data.waiting_place_suggested) {
+      if (data.waiting_place) {
+        var p = data.waiting_place;
+        html += '<div class="card">';
+        html += "<h2>Enquanto isso, que tal esperar aqui?</h2>";
+        html += '<div class="place-name">' + escapeHtml(p.name) + "</div>";
+        html += '<div class="place-address">' + escapeHtml(p.address) + "</div>";
+        html += '<div class="place-meta">';
+        if (p.category) html += "<span>" + escapeHtml(p.category) + "</span>";
+        if (p.distance_km != null) html += "<span>" + Number(p.distance_km).toFixed(1) + " km</span>";
+        if (p.rating) html += "<span>&#9733; " + Number(p.rating).toFixed(1) + "</span>";
+        html += "</div>";
+        if (p.rationale) {
+          html += '<div class="rationale">' + escapeHtml(p.rationale) + "</div>";
+        }
+        html += "</div>";
+      } else {
+        html += '<div class="card">';
+        html += "<h2>Café por perto</h2>";
+        html += '<div class="hint">' +
+          escapeHtml(data.waiting_place_unavailable_reason || "Nenhum lugar próximo encontrado.") +
+          "</div></div>";
+      }
+    }
+
+    resultEl.innerHTML = html;
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+
+    var origin = document.getElementById("origin").value.trim();
+    var destination = document.getElementById("destination").value.trim();
+    var targetTime = document.getElementById("target_time").value;
+
+    if (!origin || !destination || !targetTime) {
+      renderError("Preencha origem, destino e horário.");
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner"></span>Calculando…';
+    resultEl.innerHTML = "";
+
+    fetch("/api/uber-route/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ origin: origin, destination: destination, target_time: targetTime }),
+    })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          return { ok: response.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          var code = result.data && result.data.error;
+          renderError((ERROR_MESSAGES[code] || result.data.message || "Algo deu errado.") );
+          return;
+        }
+        renderResult(result.data);
+      })
+      .catch(function () {
+        renderError("Não foi possível falar com o servidor. Verifique sua conexão.");
+      })
+      .finally(function () {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Calcular melhor horário";
+      });
+  });
+})();
+</script>
+</body>
+</html>

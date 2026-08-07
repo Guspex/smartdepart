@@ -19,7 +19,15 @@ by `BS_UberRouteService`, served as an IRIS-native WSGI Web Application (researc
 |---|---|---|---|
 | `origin` | string | yes | Free-text location; resolved via geocoding (research.md §9) |
 | `destination` | string | yes | Free-text location; resolved via geocoding |
-| `target_time` | string | yes | `HH:MM`, 24-hour, local time |
+| `target_time` | string | yes | `HH:MM`, 24-hour, local time — **the time the rider needs to arrive** at `destination` (e.g. for an appointment), not a departure time |
+
+`recommended_time` is always a **departure** time; `estimated_arrival_time` is
+`BP_RouteOrchestrator`'s estimate of when that departure gets the rider to `destination`
+(computed from distance + `UberRoute.TrafficWeatherReference` congestion for that hour —
+see [research.md](../research.md)). `delta_minutes` is the gap between the recommended
+departure and a "naive" departure (arrival minus a typical-traffic travel estimate) — a
+large gap means the rider needs to leave much earlier or later than they'd naively expect,
+which is when a waiting place becomes useful.
 
 ### Response — 200 OK, delta ≤ 30 minutes (User Story 1)
 
@@ -27,6 +35,7 @@ by `BS_UberRouteService`, served as an IRIS-native WSGI Web Application (researc
 {
   "trip_request_id": 123,
   "recommended_time": "18:35",
+  "estimated_arrival_time": "19:05",
   "estimated_fare": 27.90,
   "delta_minutes": 5,
   "waiting_place_suggested": false,
@@ -40,6 +49,7 @@ by `BS_UberRouteService`, served as an IRIS-native WSGI Web Application (researc
 {
   "trip_request_id": 124,
   "recommended_time": "19:20",
+  "estimated_arrival_time": "19:50",
   "estimated_fare": 19.50,
   "delta_minutes": 50,
   "waiting_place_suggested": true,
@@ -60,6 +70,7 @@ by `BS_UberRouteService`, served as an IRIS-native WSGI Web Application (researc
 {
   "trip_request_id": 125,
   "recommended_time": "19:20",
+  "estimated_arrival_time": "19:50",
   "estimated_fare": 19.50,
   "delta_minutes": 50,
   "waiting_place_suggested": true,

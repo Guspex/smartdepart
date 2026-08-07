@@ -18,9 +18,13 @@ def _make_bp() -> BP_RouteOrchestrator:
     return BP_RouteOrchestrator(iris_host_object=MagicMock())
 
 
-def _fare_for(candidate_time: str, cheap_time: str):
-    """Returns a canned FarePredictionResultMessage — cheapest at `cheap_time`."""
-    fare = 10.0 if candidate_time == cheap_time else 30.0
+def _fare_favoring_latest_candidate(candidate_time: str) -> FarePredictionResultMessage:
+    """Cheapest fare goes to whichever candidate is latest in the day — baseline-agnostic
+    (BP_RouteOrchestrator scans candidates around a computed naive departure, not around
+    the raw target_time, so tests can't assume a specific absolute candidate string)."""
+    hour, minute = (int(p) for p in candidate_time.split(":"))
+    minutes_of_day = hour * 60 + minute
+    fare = 30.0 - (minutes_of_day * 0.01)
     return FarePredictionResultMessage(candidate_time=candidate_time, predicted_fare=fare, ok=True)
 
 
@@ -29,8 +33,9 @@ def test_recommended_time_later_triggers_waiting_place():
 
     def fake_send_sync(target, request):
         if target == "BO_IntegratedMLPredictor":
-            # Cheapest fare is far later than requested -> big positive delta
-            return 1, _fare_for(request.candidate_time, cheap_time="19:00")
+            # Cheapest fare is the latest candidate (largest positive offset scanned,
+            # +60 min) -> a big positive delta from the naive departure baseline.
+            return 1, _fare_favoring_latest_candidate(request.candidate_time)
         if target == "BO_HybridRAGEngine":
             return 1, WaitingPlaceResultMessage(
                 found=True, name="Cafe Central", address="Rua X", category="cafe",
@@ -57,7 +62,7 @@ def test_no_place_found_still_returns_recommendation():
 
     def fake_send_sync(target, request):
         if target == "BO_IntegratedMLPredictor":
-            return 1, _fare_for(request.candidate_time, cheap_time="19:00")
+            return 1, _fare_favoring_latest_candidate(request.candidate_time)
         if target == "BO_HybridRAGEngine":
             return 1, WaitingPlaceResultMessage(
                 found=False, unavailable_reason="No nearby waiting place found within 1.0 km"

@@ -22,7 +22,7 @@ The rider's ask, as received by `BS_UberRouteService` and validated before being
 | `OriginLat`, `OriginLng` | DOUBLE | Resolved via the geocoding adapter (research.md §9); NULL until resolved |
 | `Destination` | VARCHAR(256) | Raw destination text; NOT NULL |
 | `DestinationLat`, `DestinationLng` | DOUBLE | Resolved via geocoding; NULL until resolved |
-| `TargetTime` | TIME | Rider's desired time (`HH:MM`); NOT NULL |
+| `TargetTime` | TIME | Rider's **arrival deadline** at `Destination` (`HH:MM`), e.g. an appointment time — not a departure time (see spec.md Assumptions); NOT NULL |
 | `RequestedAt` | TIMESTAMP | Server receipt time; defaults to `CURRENT_TIMESTAMP` |
 
 **Validation** (FR-002, FR-011): `Origin`, `Destination`, `TargetTime` must all be present and
@@ -38,9 +38,10 @@ The system's answer to a `TripRequest` (spec Key Entity "Route Recommendation"; 
 |---|---|---|
 | `ID` | Identity | Primary key |
 | `TripRequestID` | Integer (FK → TripRequest) | NOT NULL |
-| `RecommendedTime` | TIME | Chosen from IntegratedML candidate-time scan (research.md §7) |
+| `RecommendedTime` | TIME | Departure time chosen from the IntegratedML candidate scan (research.md §7); always a departure, never the arrival deadline itself |
+| `EstimatedArrivalTime` | TIME | Estimated arrival at `Destination` if leaving at `RecommendedTime`, from distance + `TrafficWeatherReference` congestion — not persisted as its own column (recomputed on read), included here for documentation |
 | `EstimatedFare` | DECIMAL(8,2) | `FarePredictor` prediction for `RecommendedTime` |
-| `DeltaMinutes` | Integer | `ABS(RecommendedTime - TripRequest.TargetTime)` in minutes |
+| `DeltaMinutes` | Integer | `ABS(RecommendedTime - NaiveDepartureTime)`, where `NaiveDepartureTime = TripRequest.TargetTime - EstimatedTravelMinutes` (typical-traffic baseline) — see spec.md Assumptions |
 | `WaitingPlaceTriggered` | BIT | `1` iff `DeltaMinutes > 30` — output of the Business Rule (research.md §8) |
 | `CreatedAt` | TIMESTAMP | Defaults to `CURRENT_TIMESTAMP` |
 
