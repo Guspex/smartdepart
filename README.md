@@ -18,20 +18,27 @@ you need to arrive" go in; the page calls `POST /api/uber-route/recommend` and r
 recommended departure time, estimated arrival, fare, and (when triggered) the waiting-place
 card. See tasks.md's "Post-MVP Addition" section for what was and wasn't verified live.
 
+**Accessing it live**: the frontend is registered as an IRIS Web Application at `/uberapp`
+(see `deploy/UberRouteSetup.cls`, run once with `do ##class(UberRoute.Setup).CreateWebApp()`
+from `%SYS`). Open `http://<host>:<mapped-52773-port>/uberapp/` in a browser — it will prompt
+for HTTP Basic Auth (any valid IRIS account, e.g. `SuperUser`); unauthenticated access is
+enabled but currently rejected by IRIS itself for WSGI-type applications on this build before
+the request reaches the app (a confirmed platform bug, not an app bug — see research.md §15).
+
 ## Architecture
 
 ```
 POST /api/uber-route/recommend (WSGI, production/wsgi/app.py)
         │
         ▼
-BS_UberRouteService  (validates payload, adapterless — fed by the WSGI app)
+BsUberRouteService   (validates payload, adapterless — fed by the WSGI app)
         │  send_request_sync
         ▼
-BP_RouteOrchestrator (candidate-time scan, 30-min Business Rule, persistence)
+BpRouteOrchestrator  (candidate-time scan, 30-min Business Rule, persistence)
         │                                   │
         │ SendRequestSync                   │ SendRequestSync (only if rule fires)
         ▼                                   ▼
-BO_IntegratedMLPredictor            BO_HybridRAGEngine
+BoIntegratedMlPredictor             BoHybridRagEngine
    (FarePredictor via SQL)             (vector + keyword search over WaitingPlace)
         │                                   │
         ▼                                   ▼

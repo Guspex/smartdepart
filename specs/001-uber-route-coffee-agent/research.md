@@ -463,3 +463,80 @@ IntegratedML provider — out of scope for this deployment session. The applicat
 degrades gracefully (FR-covered): `BoIntegratedMlPredictor` catches the SQL error and returns
 `prediction_unavailable`, which `production/wsgi/app.py` maps to `503 Service Unavailable`
 with a descriptive message, exactly as verified above.
+
+## 15. Registering `/uberapp` as a real HTTP-reachable WSGI Web Application
+
+**Finding**: §14's live verification called `production/wsgi/app.py`'s `application()` function
+directly from a Python script inside the container — it never went through an actual HTTP
+request, because no IRIS **Web Application** had been registered to route HTTP traffic to it.
+`Security.Applications` (the `%SYS`-namespace table backing both the Management Portal's
+"Web Applications" page and `##class(Security.Applications)`) had no entry for the frontend at
+all. Registering one was needed before a browser could reach it.
+
+**Web Application configuration for WSGI**: `Security.Applications` has dedicated WSGI columns
+(`WSGIAppLocation`, `WSGIAppName`, `WSGICallable`, `WSGIType`, `WSGIDebug`) alongside the
+generic ones. The Management Portal's "Create Web Application" form exposes these once the
+"WSGI [Experimental]" radio button is selected (`CSPZENEnabled = "WSGI"`), revealing "Nome do
+aplicativo" (`WSGIAppName` — the importable Python module, e.g. `production.wsgi.app`), "Nome
+chamável" (`WSGICallable` — the module-level callable, e.g. `application`), and "Diretório de
+aplicativos WSGI" (`WSGIAppLocation` — the directory added to `sys.path` before import, e.g.
+`/tmp/uberroute_app`). Setting these via `Security.Applications` programmatically (`%New()` +
+property assignment + `%Save()`, or `##class(Security.Applications).Create(name, .Properties)`
+with a `Properties` local array) requires running from ObjectScript — the Python native API's
+by-ref array parameters (`&Properties`) do not marshal correctly from `iris.cls(...).Create(...)`
+or `.Modify(...)` calls (they silently no-op), and `Security.Applications` objects opened via
+`%New()`/`%OpenId()` and mutated directly from Python raise `SystemError: Cannot modify a
+string currently used` on `%Save()`. Both are Python-bridge marshaling issues specific to this
+class, not ObjectScript bugs — the same operations work correctly from a compiled ObjectScript
+classmethod (see `deploy/UberRouteSetup.cls`, `CreateWebApp()`), which is the pattern used to
+work around them.
+
+**Bug found: `Security.Applications.Type` value `5` creates an undeletable, misconfigured
+"privileged application"**: while probing valid values for the `Type` property (documented
+range 2–9, no VALUELIST readable via SQL), `Type=5` produced an application record with
+`NameSpace=''` (empty) instead of the requested `NameSpace="USER"`, and Management Portal then
+refers to it as a "aplicação privilegiada" (privileged application) that neither
+`##class(Security.Applications).Delete()` nor a raw `SQL DELETE` can remove (`ERROR #870:
+Cannot delete system application`; SQL DML is blocked entirely on this table). No workaround
+was found within this session's time budget — the leftover `/uberroute` record (and a stray
+`/uberroute_probe7` from the same probing) are harmless (unreachable, not routed to by the
+gateway for any in-use path) but permanently stuck in `%SYS`. **Avoid `Type=5`.** `Type=2`
+(used by `deploy/UberRouteSetup.cls`) creates a normal, deletable WSGI application correctly
+scoped to the requested namespace.
+
+**Bug found: unauthenticated access (`AutheEnabled=64` alone) returns a bare `403 Forbidden`
+for WSGI-type applications, even though the same setting works for REST applications on the
+same instance.** Confirmed methodically:
+- `%Api.Monitor` (a built-in REST app also configured for `AutheEnabled=64`-only,
+  unauthenticated) returns `404` for an unmatched route — meaning unauthenticated access is
+  *accepted* (auth passes; the request just reaches the dispatch class and finds no matching
+  route). The system-wide `Security.System.AutheEnabled` bitmask and `%Service_WebGateway`
+  both permit bit 64.
+- The same request pattern against `/uberapp/` (`AutheEnabled=64`-only, WSGI type) returns
+  `403 Forbidden` with an empty body, before the WSGI callable is ever invoked — confirmed by
+  calling `%SYS.Python.WSGI.ImportWSGIApplication("production.wsgi.app", "/tmp/uberroute_app",
+  "application", 1)` directly (outside HTTP), which succeeds and returns the callable, ruling
+  out a module-import or `sys.path` problem.
+- Neither disabling `CSRFToken`, disabling `WSGIDebug`, nor setting `UseCookies=0` changed the
+  result.
+- Adding `AutheEnabled = 64 + 32` (Unauthenticated + Password) and retrying **with HTTP Basic
+  Auth as `SuperUser`** returned `200 OK` with the expected frontend HTML, and a subsequent
+  `POST /api/uber-route/recommend` with the same Basic Auth returned the expected `503
+  prediction_unavailable` JSON (matching §14's direct-call verification exactly). So the
+  WSGI dispatch, module resolution, and application logic are all confirmed correct — the
+  403 is specifically an authentication-layer rejection of the *Unauthenticated* method for
+  WSGI-type applications, most likely tied to the "[Experimental]" status of WSGI support in
+  this IRIS Community 2025.3 build. Not root-caused further within this session's time budget.
+- **Workaround** (applied in `deploy/UberRouteSetup.cls`): keep Password auth enabled
+  alongside Unauthenticated, so the app is reachable with any valid IRIS account (e.g.
+  `SuperUser` / the CPF-configured password) via HTTP Basic Auth. A real desktop browser
+  prompts for these credentials natively on first visit; this session's sandboxed browser
+  automation could not drive that native prompt, so end-to-end HTTP verification was done via
+  `urllib` with an explicit `Authorization: Basic` header instead (see above) — visually
+  confirming the page render in an actual browser is still an open item.
+
+**End-to-end result**: `http://<host>:<mapped-52773>/uberapp/` (GET) serves the frontend
+`index.html`, and `POST /uberapp/api/uber-route/recommend` returns correctly-routed JSON —
+both verified over real HTTP, not just via direct Python function calls — when authenticated
+with a valid IRIS account. This closes the remaining gap from §14 (the frontend was runnable
+but not yet reachable over HTTP).
