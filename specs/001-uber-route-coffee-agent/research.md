@@ -504,9 +504,28 @@ gateway for any in-use path) but permanently stuck in `%SYS`. **Avoid `Type=5`.*
 (used by `deploy/UberRouteSetup.cls`) creates a normal, deletable WSGI application correctly
 scoped to the requested namespace.
 
+**Bug found: `Type=2` + the `WSGI*` properties is not sufficient to make the app actually
+dispatch as WSGI — `DispatchClass` must be set to `%SYS.Python.WSGI` explicitly, and nothing
+in the SQL-visible `Security.Applications` schema signals this.** Discovered when
+`deploy/UberRouteSetup.cls`'s first version (which set `Type`, `WSGIAppLocation`,
+`WSGIAppName`, `WSGICallable` but not `DispatchClass`) was used to delete and recreate
+`/uberapp` after the original portal-created record (see below) — every request, authenticated
+or not, started returning `404` instead of dispatching to the app at all. The record still
+looked correct in the Management Portal's application list and in every WSGI-specific column;
+only `DispatchClass` (left at its default, i.e. the CSP/Zen page dispatcher) was wrong, which
+silently 404s because there's no matching CSP page for any path. Confirmed by re-editing the
+broken record in the Portal, re-selecting the "WSGI [Experimental]" radio, and observing
+`DispatchClass` flip to `%SYS.Python.WSGI` only at that point — the Portal's save handler sets
+it as a side effect of that radio choice, but it's not exposed as a property you'd think to set
+from reading the schema (the visually-obvious `CSPZENEnabled` column looked like the
+discriminator but editing it directly through SQL/property access has no effect on dispatch).
+**Fixed** by adding `Set app.DispatchClass = "%SYS.Python.WSGI"` to `CreateWebApp()` — verified
+this alone (no portal involvement) produces a fully working app from a fresh
+`##class(UberRoute.Setup).CreateWebApp()` call.
+
 **Bug found: unauthenticated access (`AutheEnabled=64` alone) returns a bare `403 Forbidden`
 for WSGI-type applications, even though the same setting works for REST applications on the
-same instance.** Confirmed methodically:
+same instance.** Confirmed methodically (against a correctly-`DispatchClass`-configured app):
 - `%Api.Monitor` (a built-in REST app also configured for `AutheEnabled=64`-only,
   unauthenticated) returns `404` for an unmatched route — meaning unauthenticated access is
   *accepted* (auth passes; the request just reaches the dispatch class and finds no matching
@@ -527,16 +546,24 @@ same instance.** Confirmed methodically:
   403 is specifically an authentication-layer rejection of the *Unauthenticated* method for
   WSGI-type applications, most likely tied to the "[Experimental]" status of WSGI support in
   this IRIS Community 2025.3 build. Not root-caused further within this session's time budget.
-- **Workaround** (applied in `deploy/UberRouteSetup.cls`): keep Password auth enabled
-  alongside Unauthenticated, so the app is reachable with any valid IRIS account (e.g.
-  `SuperUser` / the CPF-configured password) via HTTP Basic Auth. A real desktop browser
-  prompts for these credentials natively on first visit; this session's sandboxed browser
-  automation could not drive that native prompt, so end-to-end HTTP verification was done via
-  `urllib` with an explicit `Authorization: Basic` header instead (see above) — visually
-  confirming the page render in an actual browser is still an open item.
+- **A second, related bug**: `AutheEnabled = 64 + 32` (Unauthenticated *and* Password) does
+  make the app reachable with Basic Auth credentials (confirmed: `200 OK` with the frontend
+  HTML, and `POST /api/uber-route/recommend` with the same header returning the expected `503
+  prediction_unavailable`, matching §14's direct-call verification exactly) — but it breaks
+  normal *browser* login, because having Unauthenticated as one of the allowed methods makes
+  IRIS skip the `401 Unauthorized` + `WWW-Authenticate: Basic` challenge that a browser needs
+  in order to pop its native login dialog. A request with no credentials at all just gets
+  silently rejected instead of prompting. (`curl`/`urllib` with an explicit `Authorization:
+  Basic` header sent up front masked this, since they never rely on the challenge.)
+- **Workaround** (applied in `deploy/UberRouteSetup.cls`): set `AutheEnabled = 32` (Password
+  *only*, Unauthenticated fully disabled). Verified: an unauthenticated request now correctly
+  gets `401` with `WWW-Authenticate: Basic` (the signal a browser needs to show its login
+  prompt), and a request with valid credentials (e.g. `SuperUser`) gets `200`. Not root-caused
+  further why Unauthenticated-alone 403s for WSGI apps specifically — most likely tied to the
+  "[Experimental]" status of WSGI support in this IRIS Community 2025.3 build.
 
 **End-to-end result**: `http://<host>:<mapped-52773>/uberapp/` (GET) serves the frontend
-`index.html`, and `POST /uberapp/api/uber-route/recommend` returns correctly-routed JSON —
-both verified over real HTTP, not just via direct Python function calls — when authenticated
-with a valid IRIS account. This closes the remaining gap from §14 (the frontend was runnable
-but not yet reachable over HTTP).
+`index.html` (prompting for Basic Auth in a real browser — `SuperUser` / the CPF-configured
+password), and `POST /uberapp/api/uber-route/recommend` returns correctly-routed JSON — both
+verified over real HTTP, not just via direct Python function calls. This closes the remaining
+gap from §14 (the frontend was runnable but not yet reachable over HTTP).
