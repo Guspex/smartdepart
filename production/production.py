@@ -11,7 +11,7 @@ iris_package_name = "UberRoute"
 
 
 class UberRouteProduction(Production):
-    description = "Uber Route & Coffee Recommendation Agent (SPECS-001)"
+    description = "Uber Route and Coffee Recommendation Agent (SPECS-001)"
     actor_pool_size = 2
     testing_enabled = True
     log_general_trace_events = True

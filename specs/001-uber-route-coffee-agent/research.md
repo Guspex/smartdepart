@@ -274,3 +274,46 @@ independently.
 **Alternatives considered**: Relying solely on IRIS's default production message trace (no
 custom logging) — rejected, insufficient detail for the specific decision points
 (rule outcome, RAG trigger) the constitution requires to be observable.
+
+## 12. Deployment blocker found live: underscore-prefixed class names fail to compile
+
+**Finding (2026-08-07, IRIS 2026.1 Build 234U Community, dedicated `smart-depart-iris`
+container)**: after successfully loading `production.py` (the `Production` definition) and
+all six message classes via the `intersystems_pyprod` CLI run *inside* the container's
+embedded Python (`/usr/irissys/bin/irispython`), loading any of the four host classes
+(`BS_UberRouteService`, `BP_RouteOrchestrator`, `BO_IntegratedMLPredictor`,
+`BO_HybridRAGEngine`) failed with:
+
+```
+ERROR #5351: Class 'UberRoute.BS_UberRouteService' does not exist.
+Skipping class UberRoute.BS_UberRouteService
+Detected 1 errors during load.
+```
+
+**Root cause, isolated by binary search** (confirmed independently via three different
+paths: `iris_execute`, the CLI run directly inside the container, and the Management
+Portal's own class-import UI — same failure every time, ruling out a client-side or
+tool-side bug): compiling a **brand-new** class whose name contains an underscore causes
+IRIS to silently create a class truncated at the first underscore instead
+(`BS_UberRouteService` → `UberRoute.BS`; `A_B` → `UberRoute.A`; `XY_Test` → `UberRoute.XY`),
+then fail the dependency-resolution pass because the *full* name it just tried to compile
+now doesn't exist. This reproduces for **any** underscore-containing class name, regardless
+of superclass (`Ens.BusinessService`, `%RegisteredObject`) — it is not specific to Ensemble
+or to pyprod's generated content. Minimal hand-written classes with no underscore (e.g.
+`UberRoute.TestSvc`) compile without issue on the same instance.
+
+**Impact**: this blocks deploying all four host classes as named, since the project
+constitution and the originating SPECS-001 request both mandate the `BS_`/`BP_`/`BO_`
+naming convention. Not something fixable in this project's code — it is a bug/limitation in
+this specific IRIS build's class compiler. Not re-attempted on a different IRIS version in
+this session; a different Community Edition build/version should be checked before
+concluding this is universal to IRIS 2026.1.
+
+**Not yet resolved** — options for the next session, in order of preference:
+1. Try a different IRIS Community Edition image/version (2025.1, or a different 2026.1
+   patch build) and see if the bug reproduces.
+2. If it doesn't reproduce anywhere else, treat this specific `smart-depart-iris` container
+   as bugged and recreate it from a fresh pull of `intersystemsdc/iris-community:latest`.
+3. Last resort, and only with explicit user sign-off (it deviates from the mandated naming
+   convention): rename the four host classes to remove underscores (e.g.
+   `BSUberRouteService`) as a workaround.
