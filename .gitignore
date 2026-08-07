@@ -1,0 +1,20 @@
+.iris-agentic-dev.toml
+
+# Contains secrets (ANTHROPIC_AUTH_TOKEN / IRIS credentials) — never commit
+.claude/settings.json
+.claude/settings.local.json
+.mcp.json
+
+# Local tooling binary — not project source
+iris-agentic-dev.exe
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+generated_cls/

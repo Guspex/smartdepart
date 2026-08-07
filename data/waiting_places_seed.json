@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Cafe Central",
+    "address": "Rua Augusta 500, Sao Paulo",
+    "category": "cafe",
+    "lat": -23.5530,
+    "lng": -46.6620,
+    "rating": 4.6,
+    "description": "Cozy neighborhood cafe with fast wifi, quiet corner tables, and specialty coffee. Popular with people working on laptops in the afternoon."
+  },
+  {
+    "name": "Coworking Paulista",
+    "address": "Av Paulista 1000, Sao Paulo",
+    "category": "coworking",
+    "lat": -23.5610,
+    "lng": -46.6555,
+    "rating": 4.2,
+    "description": "Modern coworking space with drop-in day passes, meeting rooms, and a coffee bar. Bright, open floor plan and reliable wifi."
+  },
+  {
+    "name": "Padaria Bella Vista",
+    "address": "Rua Bela Cintra 300, Sao Paulo",
+    "category": "bakery",
+    "lat": -23.5545,
+    "lng": -46.6610,
+    "rating": 4.4,
+    "description": "Traditional bakery and cafe serving pastries and coffee, with a few outdoor tables. Casual, quick stop, moderately busy in the morning."
+  },
+  {
+    "name": "Livraria Cultura Cafe",
+    "address": "Av Paulista 2073, Sao Paulo",
+    "category": "cafe",
+    "lat": -23.5615,
+    "lng": -46.6560,
+    "rating": 4.5,
+    "description": "Bookstore cafe with a calm, quiet ambiance, good for reading or working. Comfortable seating and specialty tea and coffee."
+  },
+  {
+    "name": "Espaco Compartilhado Jardins",
+    "address": "Rua Oscar Freire 800, Sao Paulo",
+    "category": "coworking",
+    "lat": -23.5625,
+    "lng": -46.6690,
+    "rating": 4.0,
+    "description": "Boutique coworking space in Jardins with private booths and a small cafe counter. Good for short waits and quick calls."
+  },
+  {
+    "name": "Cafe da Praca",
+    "address": "Praca Roosevelt 100, Sao Paulo",
+    "category": "cafe",
+    "lat": -23.5580,
+    "lng": -46.6465,
+    "rating": 3.9,
+    "description": "Casual outdoor cafe facing the square, lively atmosphere, simple coffee and snacks. Good people-watching, can get noisy on weekends."
+  }
+]
