@@ -46,7 +46,7 @@ def test_recommended_time_later_triggers_waiting_place():
     bp.send_request_sync = MagicMock(side_effect=fake_send_sync)
     with patch("production.hosts.bp_route_orchestrator.BpRouteOrchestrator._persist"):
         with patch(
-            "production.adapters.geocoding_adapter.geocode",
+            "production.hosts.bp_route_orchestrator.geocode",
             side_effect=[(-23.55, -46.66), (-23.56, -46.65)],
         ):
             request = TripRequestMessage(session_id="s1", origin="A", destination="B",
@@ -72,7 +72,7 @@ def test_no_place_found_still_returns_recommendation():
     bp.send_request_sync = MagicMock(side_effect=fake_send_sync)
     with patch("production.hosts.bp_route_orchestrator.BpRouteOrchestrator._persist"):
         with patch(
-            "production.adapters.geocoding_adapter.geocode",
+            "production.hosts.bp_route_orchestrator.geocode",
             side_effect=[(-23.55, -46.66), (-23.56, -46.65)],
         ):
             request = TripRequestMessage(session_id="s2", origin="A", destination="B",
@@ -90,7 +90,7 @@ def test_no_place_found_still_returns_recommendation():
 def test_unresolvable_location_returns_error_before_any_prediction():
     bp = _make_bp()
     bp.send_request_sync = MagicMock()
-    with patch("production.adapters.geocoding_adapter.geocode", return_value=None):
+    with patch("production.hosts.bp_route_orchestrator.geocode", return_value=None):
         request = TripRequestMessage(session_id="s3", origin="nowhere", destination="B",
                                       target_time="18:00")
         status, response = bp.on_request(request)

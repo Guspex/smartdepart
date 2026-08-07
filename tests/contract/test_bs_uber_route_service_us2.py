@@ -1,5 +1,9 @@
 """Contract tests for the "delta > 30 min" response shapes (tasks.md T025):
 waiting place found, and waiting place unavailable — contracts/bs_uber_route_service.md.
+
+Mock response objects use PascalCase attributes (ErrorCode, RecommendedTime, ...), matching
+what `service.process_input()` actually returns live: the raw IRIS-side message object, not
+the Python-side snake_case RouteRecommendationMessage (see research.md §14).
 """
 import json
 from io import BytesIO
@@ -28,20 +32,20 @@ def _stub_service(response):
 
 def test_delta_gt_30_min_with_waiting_place_found():
     response = SimpleNamespace(
-        error_code="",
-        trip_request_id=2,
-        recommended_time="19:20",
-        estimated_arrival_time="19:50",
-        estimated_fare=19.50,
-        delta_minutes=50,
-        waiting_place_suggested=True,
-        waiting_place_name="Cafe Central",
-        waiting_place_address="Rua Augusta, 500",
-        waiting_place_category="cafe",
-        waiting_place_rating=4.6,
-        waiting_place_distance_km=0.4,
-        waiting_place_rationale="Closest highly-rated match",
-        waiting_place_unavailable_reason="",
+        ErrorCode="",
+        TripRequestId=2,
+        RecommendedTime="19:20",
+        EstimatedArrivalTime="19:50",
+        EstimatedFare=19.50,
+        DeltaMinutes=50,
+        WaitingPlaceSuggested=True,
+        WaitingPlaceName="Cafe Central",
+        WaitingPlaceAddress="Rua Augusta, 500",
+        WaitingPlaceCategory="cafe",
+        WaitingPlaceRating=4.6,
+        WaitingPlaceDistanceKm=0.4,
+        WaitingPlaceRationale="Closest highly-rated match",
+        WaitingPlaceUnavailableReason="",
     )
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):
@@ -56,20 +60,20 @@ def test_delta_gt_30_min_with_waiting_place_found():
 
 def test_delta_gt_30_min_but_no_waiting_place_available():
     response = SimpleNamespace(
-        error_code="",
-        trip_request_id=3,
-        recommended_time="19:20",
-        estimated_arrival_time="19:50",
-        estimated_fare=19.50,
-        delta_minutes=50,
-        waiting_place_suggested=True,
-        waiting_place_name="",
-        waiting_place_address="",
-        waiting_place_category="",
-        waiting_place_rating=0.0,
-        waiting_place_distance_km=0.0,
-        waiting_place_rationale="",
-        waiting_place_unavailable_reason="No nearby waiting place found within 1.0 km",
+        ErrorCode="",
+        TripRequestId=3,
+        RecommendedTime="19:20",
+        EstimatedArrivalTime="19:50",
+        EstimatedFare=19.50,
+        DeltaMinutes=50,
+        WaitingPlaceSuggested=True,
+        WaitingPlaceName="",
+        WaitingPlaceAddress="",
+        WaitingPlaceCategory="",
+        WaitingPlaceRating=0.0,
+        WaitingPlaceDistanceKm=0.0,
+        WaitingPlaceRationale="",
+        WaitingPlaceUnavailableReason="No nearby waiting place found within 1.0 km",
     )
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):

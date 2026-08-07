@@ -18,7 +18,11 @@ import uuid
 
 from intersystems_pyprod import director
 
-_SERVICE_CLASS = "UberRoute.BsUberRouteService"
+# director.create_business_service() takes the production's config ITEM name
+# (as declared in production.py's ServiceItem `name=`), not the fully-qualified
+# ObjectScript class name — passing "UberRoute.BsUberRouteService" here fails
+# with `ErrBusinessDispatchNameNotRegistered` (verified live; see research.md §14).
+_SERVICE_NAME = "BsUberRouteService"
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 _STATUS_BY_ERROR_CODE = {
@@ -53,7 +57,7 @@ def application(environ, start_response):
 
     payload["session_id"] = str(uuid.uuid4())
 
-    status, service = director.create_business_service(_SERVICE_CLASS)
+    status, service = director.create_business_service(_SERVICE_NAME)
     if not status:
         return _respond(start_response, "503 Service Unavailable",
                          {"error": "service_unavailable",
@@ -61,32 +65,41 @@ def application(environ, start_response):
 
     _, response = service.process_input(payload)
 
-    if getattr(response, "error_code", ""):
-        http_status = _STATUS_BY_ERROR_CODE.get(response.error_code, "400 Bad Request")
+    # `service.process_input()` (director._AdapterlessService) returns the raw
+    # IRIS-side message object, not the Python-side RouteRecommendationMessage
+    # — it does not go through pyprod's _createmessage() conversion. The raw
+    # object's properties are PascalCase (how pyprod projects Column fields
+    # into ObjectScript, e.g. `recommended_time` -> `RecommendedTime`), not
+    # the snake_case names used on the Python side. Verified live against
+    # IRIS 2025.3 (see research.md §14) — using snake_case here silently
+    # returned None/empty for every field.
+    if getattr(response, "ErrorCode", ""):
+        error_code = response.ErrorCode
+        http_status = _STATUS_BY_ERROR_CODE.get(error_code, "400 Bad Request")
         return _respond(start_response, http_status,
-                         {"error": response.error_code, "message": response.error_message})
+                         {"error": error_code, "message": response.ErrorMessage})
 
     body_dict = {
-        "trip_request_id": getattr(response, "trip_request_id", 0),
-        "recommended_time": response.recommended_time,
-        "estimated_arrival_time": response.estimated_arrival_time,
-        "estimated_fare": response.estimated_fare,
-        "delta_minutes": response.delta_minutes,
-        "waiting_place_suggested": response.waiting_place_suggested,
+        "trip_request_id": getattr(response, "TripRequestId", 0),
+        "recommended_time": response.RecommendedTime,
+        "estimated_arrival_time": response.EstimatedArrivalTime,
+        "estimated_fare": response.EstimatedFare,
+        "delta_minutes": response.DeltaMinutes,
+        "waiting_place_suggested": bool(response.WaitingPlaceSuggested),
     }
-    if response.waiting_place_suggested:
-        if response.waiting_place_name:
+    if body_dict["waiting_place_suggested"]:
+        if response.WaitingPlaceName:
             body_dict["waiting_place"] = {
-                "name": response.waiting_place_name,
-                "address": response.waiting_place_address,
-                "category": response.waiting_place_category,
-                "rating": response.waiting_place_rating,
-                "distance_km": response.waiting_place_distance_km,
-                "rationale": response.waiting_place_rationale,
+                "name": response.WaitingPlaceName,
+                "address": response.WaitingPlaceAddress,
+                "category": response.WaitingPlaceCategory,
+                "rating": response.WaitingPlaceRating,
+                "distance_km": response.WaitingPlaceDistanceKm,
+                "rationale": response.WaitingPlaceRationale,
             }
         else:
             body_dict["waiting_place"] = None
-            body_dict["waiting_place_unavailable_reason"] = response.waiting_place_unavailable_reason
+            body_dict["waiting_place_unavailable_reason"] = response.WaitingPlaceUnavailableReason
     else:
         body_dict["waiting_place"] = None
 

@@ -14,10 +14,25 @@ found to silently truncate brand-new class names at the first underscore during 
 from __future__ import annotations
 
 import math
+import os
+import sys
 from typing import Optional
 
 import iris
 from intersystems_pyprod import BusinessOperation
+
+# See research.md §14: pyprod's generated OnInit only adds this file's own
+# directory to sys.path, not the project root needed for `from production.X.Y
+# import ...`. Add it explicitly so every deferred import below resolves.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+# Imported at module level, before any message can arrive — see research.md
+# §14 (deferred imports left intersystems_pyprod's message registry empty,
+# breaking incoming-message conversion).
+from production.messages.schemas import WaitingPlaceResultMessage  # noqa: E402
+from production.observability.telemetry import timed_event  # noqa: E402
 
 iris_package_name = "UberRoute"
 
@@ -55,9 +70,6 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 class BoHybridRagEngine(BusinessOperation):
     def on_message(self, request):
-        from production.messages.schemas import WaitingPlaceResultMessage
-        from production.observability.telemetry import timed_event
-
         session_id = getattr(request, "session_id", "")
         with timed_event("BoHybridRagEngine", "rag_call", session_id=session_id,
                           query_text=request.query_text) as ev:

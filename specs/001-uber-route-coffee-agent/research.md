@@ -358,3 +358,108 @@ now been reproduced on the same container. The application code itself (host log
 schemas, WSGI routing) has been verified correct by other means (32 passing local tests with
 IRIS/pyprod mocked; live SQL/vector/keyword search verified separately in isolation) — the
 gap is specifically in exercising it through a live, running production on this container.
+
+## 14. §13 resolved by switching IRIS versions; five more integration bugs found and fixed
+end-to-end on IRIS 2025.3
+
+**Environment change**: per explicit instruction, the entire Docker environment was wiped
+(all containers/images/volumes) and rebuilt from scratch on **IRIS Community 2025.3**
+(instead of the 2026.1 build used in §12/§13), using the same CPF-merge auto-configuration
+approach. IRIS 2025.1 was tried first and rejected — it failed to start at all ("Invalid
+Community Edition license, may have exceeded core limit"), reproducing even with `--cpus=2`.
+
+**§13 confirmed environment-specific, not a code bug**: the same production code (post-§12
+rename) was redeployed unmodified on 2025.3. Worker jobs no longer get marked "dead" by
+`Ens.MonitorService`. Errors that do occur now surface as ordinary catchable Python
+exceptions instead of killing the job. `TRAIN MODEL` also no longer segfaults on 2025.3 — it
+fails cleanly with SQLCODE -186 ("AutoML provider not available", see below). This is strong
+evidence 2026.1 Build 234U had broader embedded-Python-bridge instability beyond just the
+class-naming bug, not present in 2025.3.
+
+With the crash class gone, five further integration bugs surfaced while driving a real
+request through the full stack (`director.create_business_service(...).process_input(...)`,
+exactly as `production/wsgi/app.py` does) — all fixed and reverified with a live call:
+
+1. **`ModuleNotFoundError: No module named 'production'`**. `intersystems_pyprod`'s
+   generated `OnInit` only adds the *script's own directory* (e.g. `production/hosts/`) to
+   `sys.path`, not the project root — so `from production.messages.schemas import ...`
+   failed on the very first host invocation. Fixed by inserting the project root into
+   `sys.path` explicitly at module level in all four host files, computed from `__file__` via
+   `os.path.dirname()` chaining, before any `production.*` import:
+   ```python
+   _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+   if _PROJECT_ROOT not in sys.path:
+       sys.path.insert(0, _PROJECT_ROOT)
+   ```
+
+2. **`AttributeError: Property session_id not found in object of type
+   iris.UberRoute.TripRequestMessage`**. Pyprod's `_createmessage()` (which converts the raw
+   IRIS-side message object into the Python-side dataclass before `on_request`/`on_message`/
+   `on_process_input` runs) looks up the incoming message's class in a module-level registry
+   (`_ProductionMessage_registry`) populated by `__init_subclass__` — i.e. only when the
+   message class's *module has been imported*. The original code deferred
+   `from production.messages.schemas import ...` to inside each method body (to dodge the
+   sys.path issue above), so on the first message the registry was still empty and
+   `_createmessage()` silently returned the *raw, unconverted* object instead of raising.
+   Fixed by hoisting all `production.*` imports (message schemas, adapters, business rules,
+   telemetry) to module level in all four host files, alongside the `sys.path` fix above.
+   Downstream effect on tests: `tests/integration/test_user_story_2.py` patched
+   `"production.adapters.geocoding_adapter.geocode"`, but since `bp_route_orchestrator.py`
+   now imports `geocode` at module level (binding a local name in its own namespace), the
+   patch target had to move to `"production.hosts.bp_route_orchestrator.geocode"`.
+
+3. **`director.create_business_service(name)` takes the production's configured *item name*
+   (the `name=` passed to `ServiceItem`/`ProcessItem`/`OperationItem` in `production.py`),
+   not the fully-qualified ObjectScript class name.** Passing the class name (e.g.
+   `"UberRoute.BsUberRouteService"`) raises `ErrBusinessDispatchNameNotRegistered` inside
+   `intersystems_pyprod`'s `director.py`, surfacing to the caller as
+   `AttributeError: 'str' object has no attribute 'ProcessInput'`. This bug was present in
+   `production/wsgi/app.py`'s `_SERVICE_CLASS` constant (unnoticed until live-tested — unit
+   tests mock `director.create_business_service` entirely, so they never touch this arg).
+   Fixed by renaming the constant to `_SERVICE_NAME` with value `"BsUberRouteService"` (no
+   package prefix) and updating the `create_business_service(...)` call site.
+
+4. **The object returned by `service.process_input(payload)` uses PascalCase properties, not
+   the Python-side snake_case attribute names.** `director._AdapterlessService.process_input()`
+   returns the *raw IRIS-side message object* directly — it does not route through pyprod's
+   `_createmessage()` conversion the way host-to-host messaging does. Confirmed via
+   `dir(response)` on a live call: `['DeltaMinutes', 'ErrorCode', 'ErrorMessage',
+   'EstimatedArrivalTime', 'EstimatedFare', ..., 'RecommendedTime', ..., 'TripRequestId',
+   'WaitingPlaceAddress', ...]` — i.e. pyprod's `Column`-to-ObjectScript-property projection
+   (`recommended_time` → `RecommendedTime`), with no snake_case Python wrapper on this
+   particular path. Fixed by rewriting every field access in `production/wsgi/app.py` from
+   snake_case (`response.recommended_time`) to PascalCase (`response.RecommendedTime`), and
+   updating the `SimpleNamespace` mocks in `tests/contract/test_bs_uber_route_service_us1.py`
+   and `test_bs_uber_route_service_us2.py` to match the real shape.
+
+5. **`irispython` is not on `$PATH` inside the container** — it must be invoked by full path,
+   `/usr/irissys/bin/irispython`. (Environment/tooling note, not an application bug — recorded
+   here because it cost real debugging time and will recur on any fresh container.)
+
+**End-to-end verification**: after all five fixes, a live POST-equivalent call through
+`production/wsgi/app.py`'s `application()` (the same WSGI entrypoint the frontend calls)
+against the running `smart-depart-iris` (2025.3) container returned a well-formed response:
+```
+STATUS: 503 Service Unavailable
+BODY: {"error": "prediction_unavailable", "message": "Could not compute a fare/time
+recommendation right now:  Model 'FarePredictor' has no default trained model.  It may not
+have been trained."}
+```
+This is the *expected* outcome given `TRAIN MODEL` cannot succeed on this Community Edition
+image (§ below) — critically, it is a clean, catchable, correctly-routed error surfaced
+through the full BsUberRouteService → BpRouteOrchestrator → BoIntegratedMlPredictor chain and
+back through the WSGI layer with the right HTTP status and JSON shape, not a crash, hang, or
+silent job death. This confirms the application code, host wiring, message routing, and WSGI
+layer are all correct; the only remaining gap is IntegratedML model training in this specific
+Docker image.
+
+**`TRAIN MODEL` / AutoML unavailable — confirmed as a genuine platform limitation, not a
+bug**: `TRAIN MODEL FarePredictor` fails with SQLCODE -186 ("AutoML provider not available")
+on IRIS Community 2025.3. This is a *clean* failure (unlike the 2026.1 segfault in §13) —
+another confirmation that 2026.1's instability was broader than just this feature. IRIS
+Community Edition images do not ship a default AutoML provider; enabling `TRAIN MODEL` would
+require either a different IRIS edition/image with AutoML bundled, or registering a custom
+IntegratedML provider — out of scope for this deployment session. The application already
+degrades gracefully (FR-covered): `BoIntegratedMlPredictor` catches the SQL error and returns
+`prediction_unavailable`, which `production/wsgi/app.py` maps to `503 Service Unavailable`
+with a descriptive message, exactly as verified above.

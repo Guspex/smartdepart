@@ -13,17 +13,30 @@ compilation (research.md §12); this naming avoids that bug entirely.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import iris
 from intersystems_pyprod import BusinessOperation
+
+# See research.md §14: pyprod's generated OnInit only adds this file's own
+# directory to sys.path, not the project root needed for `from production.X.Y
+# import ...`. Add it explicitly so every deferred import below resolves.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+# Imported at module level, before any message can arrive — see research.md
+# §14 (deferred imports left intersystems_pyprod's message registry empty,
+# breaking incoming-message conversion).
+from production.messages.schemas import FarePredictionResultMessage  # noqa: E402
+from production.observability.telemetry import timed_event  # noqa: E402
 
 iris_package_name = "UberRoute"
 
 
 class BoIntegratedMlPredictor(BusinessOperation):
     def on_message(self, request):
-        from production.messages.schemas import FarePredictionResultMessage
-        from production.observability.telemetry import timed_event
-
         session_id = getattr(request, "session_id", "")
 
         with timed_event(

@@ -3,6 +3,10 @@
 
 `director.create_business_service` is mocked so these tests don't require a running IRIS
 production — they verify production/wsgi/app.py's HTTP-layer contract in isolation.
+
+Mock response objects use PascalCase attributes (ErrorCode, RecommendedTime, ...), matching
+what `service.process_input()` actually returns live: the raw IRIS-side message object, not
+the Python-side snake_case RouteRecommendationMessage (see research.md §14).
 """
 import json
 from io import BytesIO
@@ -68,7 +72,7 @@ def test_malformed_json_returns_400():
 
 def test_validation_error_from_service_returns_400():
     response = SimpleNamespace(
-        error_code="invalid_request", error_message="missing required field(s): origin"
+        ErrorCode="invalid_request", ErrorMessage="missing required field(s): origin"
     )
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):
@@ -79,7 +83,7 @@ def test_validation_error_from_service_returns_400():
 
 def test_location_not_found_returns_422():
     response = SimpleNamespace(
-        error_code="location_not_found", error_message="Could not resolve 'origin'"
+        ErrorCode="location_not_found", ErrorMessage="Could not resolve 'origin'"
     )
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):
@@ -92,20 +96,20 @@ def test_location_not_found_returns_422():
 
 def test_delta_leq_30_min_returns_200_with_no_waiting_place():
     response = SimpleNamespace(
-        error_code="",
-        trip_request_id=1,
-        recommended_time="18:05",
-        estimated_arrival_time="18:30",
-        estimated_fare=27.90,
-        delta_minutes=5,
-        waiting_place_suggested=False,
-        waiting_place_name="",
-        waiting_place_address="",
-        waiting_place_category="",
-        waiting_place_rating=0.0,
-        waiting_place_distance_km=0.0,
-        waiting_place_rationale="",
-        waiting_place_unavailable_reason="",
+        ErrorCode="",
+        TripRequestId=1,
+        RecommendedTime="18:05",
+        EstimatedArrivalTime="18:30",
+        EstimatedFare=27.90,
+        DeltaMinutes=5,
+        WaitingPlaceSuggested=False,
+        WaitingPlaceName="",
+        WaitingPlaceAddress="",
+        WaitingPlaceCategory="",
+        WaitingPlaceRating=0.0,
+        WaitingPlaceDistanceKm=0.0,
+        WaitingPlaceRationale="",
+        WaitingPlaceUnavailableReason="",
     )
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):

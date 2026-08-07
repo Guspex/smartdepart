@@ -21,11 +21,40 @@ when `business_rules.waiting_place_should_be_suggested()` says so (FR-005/FR-006
 from __future__ import annotations
 
 import math
+import os
+import sys
 from datetime import datetime
 from typing import Optional
 
 import iris
 from intersystems_pyprod import BusinessProcess
+
+# pyprod's generated OnInit only adds this file's own directory
+# (production/hosts/) to sys.path, not the project root — so the
+# `from production.X.Y import ...` package-qualified imports used
+# throughout this file need the root added explicitly, or every host
+# job fails at first message with ModuleNotFoundError: No module named
+# 'production' (found live against IRIS 2025.3; see research.md §14).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+# Imported at module level (not deferred inside a method), and specifically
+# BEFORE any message can arrive: pyprod's _createmessage() looks up incoming
+# IRIS message objects in intersystems_pyprod's internal
+# _ProductionMessage_registry, which a message class only joins once its
+# module has been imported in this process. A deferred import here left the
+# registry empty until the first call, causing every request's message
+# object to fail conversion with `AttributeError: Property session_id not
+# found` (found live against IRIS 2025.3; see research.md §14).
+from production.adapters.geocoding_adapter import geocode  # noqa: E402
+from production.hosts.business_rules import waiting_place_should_be_suggested  # noqa: E402
+from production.messages.schemas import (  # noqa: E402
+    FarePredictionQueryMessage,
+    RouteRecommendationMessage,
+    WaitingPlaceQueryMessage,
+)
+from production.observability.telemetry import log_event, timed_event  # noqa: E402
 
 iris_package_name = "UberRoute"
 
@@ -107,15 +136,6 @@ def _estimate_travel_minutes(distance_km: float, hour: int, day_of_week: int) ->
 
 class BpRouteOrchestrator(BusinessProcess):
     def on_request(self, request):
-        from production.adapters.geocoding_adapter import geocode
-        from production.hosts.business_rules import waiting_place_should_be_suggested
-        from production.messages.schemas import (
-            FarePredictionQueryMessage,
-            RouteRecommendationMessage,
-            WaitingPlaceQueryMessage,
-        )
-        from production.observability.telemetry import log_event, timed_event
-
         session_id = request.session_id
         log_event("BpRouteOrchestrator", "request_received", session_id=session_id,
                    origin=request.origin, destination=request.destination,
@@ -230,8 +250,6 @@ class BpRouteOrchestrator(BusinessProcess):
     @staticmethod
     def _persist(request, response, session_id: str) -> None:
         """FR-012: record the request and key decision points (Constitution Principle V)."""
-        from production.observability.telemetry import log_event, timed_event
-
         with timed_event("BpRouteOrchestrator", "persisted", session_id=session_id) as ev:
             try:
                 trip_stmt = iris.sql.prepare(

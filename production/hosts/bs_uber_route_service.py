@@ -9,7 +9,28 @@ underscore during compilation (research.md §12); this naming avoids that bug en
 """
 from __future__ import annotations
 
+import os
+import sys
+
 from intersystems_pyprod import BusinessService
+
+# See research.md §14: pyprod's generated OnInit only adds this file's own
+# directory to sys.path, not the project root needed for `from production.X.Y
+# import ...`. Add it explicitly so every deferred import below resolves.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+# Imported at module level (not deferred inside a method), and specifically
+# BEFORE any message can arrive: pyprod's _createmessage() looks up incoming
+# IRIS message objects in intersystems_pyprod's internal
+# _ProductionMessage_registry, which a message class only joins once its
+# module has been imported in this process. A deferred import here left the
+# registry empty until the first call, causing every request's message
+# object to fail conversion with `AttributeError: Property session_id not
+# found` (found live against IRIS 2025.3; see research.md §14).
+from production.messages.schemas import RouteRecommendationMessage, TripRequestMessage  # noqa: E402
+from production.observability.telemetry import log_event  # noqa: E402
 
 iris_package_name = "UberRoute"
 
@@ -20,9 +41,6 @@ ALLOWED_FIELDS = {"origin", "destination", "target_time"}
 class BsUberRouteService(BusinessService):
     def on_process_input(self, input):
         """`input` is the parsed request dict handed in by production/wsgi/app.py."""
-        from production.messages.schemas import RouteRecommendationMessage, TripRequestMessage
-        from production.observability.telemetry import log_event
-
         error = self._validate(input)
         if error:
             log_event("BsUberRouteService", "request_received", outcome="error",
