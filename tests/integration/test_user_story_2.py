@@ -1,12 +1,12 @@
 """Integration tests for User Story 2's acceptance scenarios (tasks.md T026):
 recommended time later than requested, earlier than requested, and no place found nearby.
 
-BP_RouteOrchestrator's calls to BO_IntegratedMLPredictor/BO_HybridRAGEngine/geocoding are
+BpRouteOrchestrator's calls to BoIntegratedMlPredictor/BoHybridRagEngine/geocoding are
 mocked so this test exercises the orchestration + Business Rule logic in isolation.
 """
 from unittest.mock import MagicMock, patch
 
-from production.hosts.bp_route_orchestrator import BP_RouteOrchestrator
+from production.hosts.bp_route_orchestrator import BpRouteOrchestrator
 from production.messages.schemas import (
     FarePredictionResultMessage,
     TripRequestMessage,
@@ -14,13 +14,13 @@ from production.messages.schemas import (
 )
 
 
-def _make_bp() -> BP_RouteOrchestrator:
-    return BP_RouteOrchestrator(iris_host_object=MagicMock())
+def _make_bp() -> BpRouteOrchestrator:
+    return BpRouteOrchestrator(iris_host_object=MagicMock())
 
 
 def _fare_favoring_latest_candidate(candidate_time: str) -> FarePredictionResultMessage:
     """Cheapest fare goes to whichever candidate is latest in the day — baseline-agnostic
-    (BP_RouteOrchestrator scans candidates around a computed naive departure, not around
+    (BpRouteOrchestrator scans candidates around a computed naive departure, not around
     the raw target_time, so tests can't assume a specific absolute candidate string)."""
     hour, minute = (int(p) for p in candidate_time.split(":"))
     minutes_of_day = hour * 60 + minute
@@ -32,11 +32,11 @@ def test_recommended_time_later_triggers_waiting_place():
     bp = _make_bp()
 
     def fake_send_sync(target, request):
-        if target == "BO_IntegratedMLPredictor":
+        if target == "BoIntegratedMlPredictor":
             # Cheapest fare is the latest candidate (largest positive offset scanned,
             # +60 min) -> a big positive delta from the naive departure baseline.
             return 1, _fare_favoring_latest_candidate(request.candidate_time)
-        if target == "BO_HybridRAGEngine":
+        if target == "BoHybridRagEngine":
             return 1, WaitingPlaceResultMessage(
                 found=True, name="Cafe Central", address="Rua X", category="cafe",
                 rating=4.5, distance_km=0.3, rationale="closest",
@@ -44,7 +44,7 @@ def test_recommended_time_later_triggers_waiting_place():
         raise AssertionError(f"unexpected target {target}")
 
     bp.send_request_sync = MagicMock(side_effect=fake_send_sync)
-    with patch("production.hosts.bp_route_orchestrator.BP_RouteOrchestrator._persist"):
+    with patch("production.hosts.bp_route_orchestrator.BpRouteOrchestrator._persist"):
         with patch(
             "production.adapters.geocoding_adapter.geocode",
             side_effect=[(-23.55, -46.66), (-23.56, -46.65)],
@@ -61,16 +61,16 @@ def test_no_place_found_still_returns_recommendation():
     bp = _make_bp()
 
     def fake_send_sync(target, request):
-        if target == "BO_IntegratedMLPredictor":
+        if target == "BoIntegratedMlPredictor":
             return 1, _fare_favoring_latest_candidate(request.candidate_time)
-        if target == "BO_HybridRAGEngine":
+        if target == "BoHybridRagEngine":
             return 1, WaitingPlaceResultMessage(
                 found=False, unavailable_reason="No nearby waiting place found within 1.0 km"
             )
         raise AssertionError(f"unexpected target {target}")
 
     bp.send_request_sync = MagicMock(side_effect=fake_send_sync)
-    with patch("production.hosts.bp_route_orchestrator.BP_RouteOrchestrator._persist"):
+    with patch("production.hosts.bp_route_orchestrator.BpRouteOrchestrator._persist"):
         with patch(
             "production.adapters.geocoding_adapter.geocode",
             side_effect=[(-23.55, -46.66), (-23.56, -46.65)],

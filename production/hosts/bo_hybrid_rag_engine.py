@@ -1,4 +1,4 @@
-"""BO_HybridRAGEngine — hybrid (vector + keyword) search over the WaitingPlace
+"""BoHybridRagEngine — hybrid (vector + keyword) search over the WaitingPlace
 collection (constitution Principle III, NON-NEGOTIABLE; research.md §5).
 
 Combines a `VECTOR_COSINE` semantic search with an iFind keyword search
@@ -6,6 +6,10 @@ Combines a `VECTOR_COSINE` semantic search with an iFind keyword search
 `%CONTAINS(...)` function-call form, which does not work against a DDL-created
 `%iFind.Index.Basic` index) using a 0.6/0.4 weighted score, filtered to the
 origin-proximity radius (FR-009).
+
+Class name is underscore-free PascalCase (`BoHybridRagEngine`) — IRIS 2026.1 Build 234U was
+found to silently truncate brand-new class names at the first underscore during compilation
+(research.md §12); this naming avoids that bug entirely.
 """
 from __future__ import annotations
 
@@ -49,13 +53,13 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r_km * math.asin(math.sqrt(a))
 
 
-class BO_HybridRAGEngine(BusinessOperation):
+class BoHybridRagEngine(BusinessOperation):
     def on_message(self, request):
         from production.messages.schemas import WaitingPlaceResultMessage
         from production.observability.telemetry import timed_event
 
         session_id = getattr(request, "session_id", "")
-        with timed_event("BO_HybridRAGEngine", "rag_call", session_id=session_id,
+        with timed_event("BoHybridRagEngine", "rag_call", session_id=session_id,
                           query_text=request.query_text) as ev:
             try:
                 best = self._search(

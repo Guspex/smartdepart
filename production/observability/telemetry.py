@@ -70,7 +70,7 @@ class timed_event:
 
     Usage::
 
-        with timed_event("BP_RouteOrchestrator", "integratedml_call", session_id=sid):
+        with timed_event("BpRouteOrchestrator", "integratedml_call", session_id=sid):
             ...  # do the work; raising inside marks outcome="error" automatically
     """
 

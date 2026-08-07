@@ -2,7 +2,7 @@
 chosen one's rationale explains why it was picked over the others (tasks.md T037; spec.md
 User Story 3 Acceptance Scenario 1).
 """
-from production.hosts.bo_hybrid_rag_engine import BO_HybridRAGEngine
+from production.hosts.bo_hybrid_rag_engine import BoHybridRagEngine
 
 
 def test_rationale_differentiates_from_other_candidates():
@@ -14,7 +14,7 @@ def test_rationale_differentiates_from_other_candidates():
     ]
     best = candidates[0]
 
-    rationale = BO_HybridRAGEngine._rationale(best, candidates)
+    rationale = BoHybridRagEngine._rationale(best, candidates)
 
     assert "0.3 km" in rationale
     assert "4.6" in rationale
@@ -26,6 +26,6 @@ def test_rationale_is_non_empty_with_a_single_candidate():
         {"id": 1, "name": "Cafe Central", "distance_km": 0.3, "rating": 4.6,
          "vector_score": 0.9, "keyword_score": 0.0, "final_score": 0.54},
     ]
-    rationale = BO_HybridRAGEngine._rationale(candidates[0], candidates)
+    rationale = BoHybridRagEngine._rationale(candidates[0], candidates)
     assert rationale
     assert "0.3 km" in rationale

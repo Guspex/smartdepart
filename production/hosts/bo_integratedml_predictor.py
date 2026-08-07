@@ -1,4 +1,4 @@
-"""BO_IntegratedMLPredictor — predicts the fare for a candidate departure time using the
+"""BoIntegratedMlPredictor — predicts the fare for a candidate departure time using the
 `FarePredictor` IntegratedML model (constitution Principle IV; research.md §7).
 
 Queries IntegratedML through Embedded Python/SQL against the IRIS connection already in
@@ -6,6 +6,10 @@ use — no separate model-serving stack, per the constitution. If `FarePredictor
 been trained yet, IRIS raises SQLCODE -191 ("no default trained model"); this host
 surfaces that as `ok=False` with an explanatory message rather than inventing a parallel,
 non-IntegratedML fallback formula.
+
+Class name is underscore-free PascalCase (`BoIntegratedMlPredictor`) — IRIS 2026.1 Build
+234U was found to silently truncate brand-new class names at the first underscore during
+compilation (research.md §12); this naming avoids that bug entirely.
 """
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from intersystems_pyprod import BusinessOperation
 iris_package_name = "UberRoute"
 
 
-class BO_IntegratedMLPredictor(BusinessOperation):
+class BoIntegratedMlPredictor(BusinessOperation):
     def on_message(self, request):
         from production.messages.schemas import FarePredictionResultMessage
         from production.observability.telemetry import timed_event
@@ -23,7 +27,7 @@ class BO_IntegratedMLPredictor(BusinessOperation):
         session_id = getattr(request, "session_id", "")
 
         with timed_event(
-            "BO_IntegratedMLPredictor",
+            "BoIntegratedMlPredictor",
             "integratedml_call",
             session_id=session_id,
             candidate_time=request.candidate_time,

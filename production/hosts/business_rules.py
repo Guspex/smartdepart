@@ -7,9 +7,9 @@ or hand-authored Rule XML validated interactively in the Rule Editor — authori
 blind, with no way to exercise the Rule Editor's live validation in this environment,
 risks shipping a syntactically-plausible but broken rule. research.md §8 pre-approved a
 plain Python fallback for exactly this situation. This module IS that fallback: a single,
-isolated, independently-unit-testable function — not inlined into BP_RouteOrchestrator —
+isolated, independently-unit-testable function — not inlined into BpRouteOrchestrator —
 so it is still a discrete "Business Rule" component in spirit, and can be swapped for a
-real `Ens.Rule.RuleSet` (called from BP_RouteOrchestrator via Embedded Python's
+real `Ens.Rule.RuleSet` (called from BpRouteOrchestrator via Embedded Python's
 `iris.cls(...)`) later without touching orchestration logic.
 """
 from __future__ import annotations

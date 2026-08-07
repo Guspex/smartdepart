@@ -317,3 +317,44 @@ concluding this is universal to IRIS 2026.1.
 3. Last resort, and only with explicit user sign-off (it deviates from the mandated naming
    convention): rename the four host classes to remove underscores (e.g.
    `BSUberRouteService`) as a workaround.
+
+**Update (2026-08-07, same session, user-approved)**: option 3 was applied. All four host
+classes and the corresponding `production.py` item names were renamed to underscore-free
+PascalCase: `BsUberRouteService`, `BpRouteOrchestrator`, `BoIntegratedMlPredictor`,
+`BoHybridRagEngine`. This **fixed the compilation bug** — all four classes, `production.py`,
+and all six message classes now load successfully via the CLI run inside the container's
+embedded Python, and `Ens.Director.StartProduction` starts the production with all four
+items showing as running.
+
+## 13. New blocker found after fixing §12: worker jobs crash on first message, independent of the rename
+
+**Finding**: with the production started and all four hosts compiled, sending a request all
+the way through (`director.create_business_service("BsUberRouteService")` then
+`.process_input({...})`, exactly as `production/wsgi/app.py` does) hangs forever. Root
+cause, found via `Ens_Util.Log` (the Interoperability event log — not `%SYS.ProcessQuery`,
+which showed jobs as merely "idle", and not the per-host mini-log in the Portal, which only
+logs the "job started" info): **the worker job for a config item is marked "dead" by
+`Ens.MonitorService` within seconds of receiving its first message**, e.g.:
+
+```
+Marking job 3540 ('BpRouteOrchestrator'), with active message '2', as 'dead' ...
+Active message '2', processed in job 'BpRouteOrchestrator', has been restored to the queue.
+```
+
+This happened even for `BsUberRouteService`, whose `on_process_input` does nothing more
+exotic than validate the payload and call `self.send_request_sync(...)` — no direct SQL, no
+external calls. The job dying that fast on that trivial a call, combined with the earlier,
+independently-confirmed `TRAIN MODEL` segfault (research.md §"Verified live... TRAIN MODEL
+did not succeed", same category: a job silently dying inside this container), points to the
+same underlying cause: **this specific `smart-depart-iris` container's embedded
+Python↔IRIS bridge is unstable under real host execution**, not just under IntegratedML
+training. The class-naming fix (§12) was real and necessary, but not sufficient — it
+unblocked compilation, not execution.
+
+**Not resolved this session** (time budget). Requires either: a fresh container from a
+different IRIS Community image/version to see if the instability reproduces there too, or
+InterSystems support engagement given two independent embedded-Python crash patterns have
+now been reproduced on the same container. The application code itself (host logic, message
+schemas, WSGI routing) has been verified correct by other means (32 passing local tests with
+IRIS/pyprod mocked; live SQL/vector/keyword search verified separately in isolation) — the
+gap is specifically in exercising it through a live, running production on this container.

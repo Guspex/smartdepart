@@ -1,16 +1,16 @@
 """Integration test for User Story 1's full happy path: a valid trip request produces a
-recommended time + fare (tasks.md T016). BP_RouteOrchestrator is reached through
-BS_UberRouteService.send_request_sync, which is mocked here so the test doesn't require a
+recommended time + fare (tasks.md T016). BpRouteOrchestrator is reached through
+BsUberRouteService.send_request_sync, which is mocked here so the test doesn't require a
 running IRIS production — it verifies the BS -> BP hand-off contract in isolation.
 """
 from unittest.mock import MagicMock
 
-from production.hosts.bs_uber_route_service import BS_UberRouteService
+from production.hosts.bs_uber_route_service import BsUberRouteService
 from production.messages.schemas import RouteRecommendationMessage, TripRequestMessage
 
 
-def _make_service() -> BS_UberRouteService:
-    service = BS_UberRouteService(iris_host_object=MagicMock())
+def _make_service() -> BsUberRouteService:
+    service = BsUberRouteService(iris_host_object=MagicMock())
     return service
 
 
@@ -30,7 +30,7 @@ def test_valid_request_is_forwarded_to_bp_route_orchestrator():
     assert response is expected_response
     service.send_request_sync.assert_called_once()
     target, sent_request = service.send_request_sync.call_args[0]
-    assert target == "BP_RouteOrchestrator"
+    assert target == "BpRouteOrchestrator"
     assert isinstance(sent_request, TripRequestMessage)
     assert sent_request.origin == "Av. Paulista, 1000"
     assert sent_request.destination == "Rua Augusta, 500"

@@ -1,5 +1,9 @@
-"""BP_RouteOrchestrator — orchestrates the IntegratedML fare prediction and (when the
+"""BpRouteOrchestrator — orchestrates the IntegratedML fare prediction and (when the
 Business Rule fires) the hybrid RAG waiting-place lookup for one trip request.
+
+Class name is underscore-free PascalCase (`BpRouteOrchestrator`) — IRIS 2026.1 Build 234U
+was found to silently truncate brand-new class names at the first underscore during
+compilation (research.md §12); this naming avoids that bug entirely.
 
 `target_time` is the rider's **arrival deadline** (e.g. "I need to be at my meeting by
 14:00"), not a departure time. This host works backwards from it: it estimates a naive
@@ -101,7 +105,7 @@ def _estimate_travel_minutes(distance_km: float, hour: int, day_of_week: int) ->
     return max(1, round(hours * 60))
 
 
-class BP_RouteOrchestrator(BusinessProcess):
+class BpRouteOrchestrator(BusinessProcess):
     def on_request(self, request):
         from production.adapters.geocoding_adapter import geocode
         from production.hosts.business_rules import waiting_place_should_be_suggested
@@ -113,7 +117,7 @@ class BP_RouteOrchestrator(BusinessProcess):
         from production.observability.telemetry import log_event, timed_event
 
         session_id = request.session_id
-        log_event("BP_RouteOrchestrator", "request_received", session_id=session_id,
+        log_event("BpRouteOrchestrator", "request_received", session_id=session_id,
                    origin=request.origin, destination=request.destination,
                    target_time=request.target_time)
 
@@ -124,13 +128,13 @@ class BP_RouteOrchestrator(BusinessProcess):
             )
             return self.OKStatus(), response
 
-        with timed_event("BP_RouteOrchestrator", "geocode_call", session_id=session_id):
+        with timed_event("BpRouteOrchestrator", "geocode_call", session_id=session_id):
             origin_coords = geocode(request.origin)
             destination_coords = geocode(request.destination)
 
         if origin_coords is None or destination_coords is None:
             unresolved = "origin" if origin_coords is None else "destination"
-            log_event("BP_RouteOrchestrator", "rule_outcome", session_id=session_id,
+            log_event("BpRouteOrchestrator", "rule_outcome", session_id=session_id,
                        outcome="error", reason=f"could not resolve {unresolved}")
             response = RouteRecommendationMessage(
                 error_code="location_not_found",
@@ -161,7 +165,7 @@ class BP_RouteOrchestrator(BusinessProcess):
                 day_of_week=day_of_week,
                 distance_km=distance_km,
             )
-            status, result = self.send_request_sync("BO_IntegratedMLPredictor", query)
+            status, result = self.send_request_sync("BoIntegratedMlPredictor", query)
             if not result.ok:
                 last_error = result.error_message
                 continue
@@ -170,7 +174,7 @@ class BP_RouteOrchestrator(BusinessProcess):
                 best_time = candidate
 
         if best_time is None or best_fare is None:
-            log_event("BP_RouteOrchestrator", "rule_outcome", session_id=session_id,
+            log_event("BpRouteOrchestrator", "rule_outcome", session_id=session_id,
                        outcome="error", reason="no fare prediction available")
             response = RouteRecommendationMessage(
                 error_code="prediction_unavailable",
@@ -183,7 +187,7 @@ class BP_RouteOrchestrator(BusinessProcess):
 
         delta_minutes = abs(_minutes_between(best_time, naive_departure))
         triggered = waiting_place_should_be_suggested(delta_minutes)
-        log_event("BP_RouteOrchestrator", "rule_outcome", session_id=session_id,
+        log_event("BpRouteOrchestrator", "rule_outcome", session_id=session_id,
                    delta_minutes=delta_minutes, waiting_place_triggered=triggered)
 
         chosen_duration = _estimate_travel_minutes(distance_km, best_time[0], day_of_week)
@@ -205,8 +209,8 @@ class BP_RouteOrchestrator(BusinessProcess):
                 query_text=f"place to wait near {request.origin}",
                 radius_km=_WAITING_PLACE_RADIUS_KM,
             )
-            with timed_event("BP_RouteOrchestrator", "rag_call", session_id=session_id):
-                status, place = self.send_request_sync("BO_HybridRAGEngine", place_query)
+            with timed_event("BpRouteOrchestrator", "rag_call", session_id=session_id):
+                status, place = self.send_request_sync("BoHybridRagEngine", place_query)
 
             if place.found:
                 response.waiting_place_name = place.name
@@ -228,7 +232,7 @@ class BP_RouteOrchestrator(BusinessProcess):
         """FR-012: record the request and key decision points (Constitution Principle V)."""
         from production.observability.telemetry import log_event, timed_event
 
-        with timed_event("BP_RouteOrchestrator", "persisted", session_id=session_id) as ev:
+        with timed_event("BpRouteOrchestrator", "persisted", session_id=session_id) as ev:
             try:
                 trip_stmt = iris.sql.prepare(
                     "INSERT INTO UberRoute.TripRequest "
@@ -277,5 +281,5 @@ class BP_RouteOrchestrator(BusinessProcess):
                 log_stmt.execute(session_id, payload)
             except Exception as exc:  # noqa: BLE001 — persistence must not fail the request
                 ev.outcome = "error"
-                log_event("BP_RouteOrchestrator", "error", session_id=session_id,
+                log_event("BpRouteOrchestrator", "error", session_id=session_id,
                            outcome="error", error_message=str(exc))

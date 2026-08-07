@@ -1,7 +1,11 @@
-"""BS_UberRouteService — validates the inbound trip-request payload and forwards it to
-BP_RouteOrchestrator (constitution Principle I). Adapterless: fed by
+"""BsUberRouteService — validates the inbound trip-request payload and forwards it to
+BpRouteOrchestrator (constitution Principle I). Adapterless: fed by
 production/wsgi/app.py via `director.create_business_service(...).process_input(...)`
 (research.md §2), not by an inbound adapter.
+
+Class name is underscore-free PascalCase (`BsUberRouteService`, not `BS_UberRouteService`)
+— IRIS 2026.1 Build 234U was found to silently truncate brand-new class names at the first
+underscore during compilation (research.md §12); this naming avoids that bug entirely.
 """
 from __future__ import annotations
 
@@ -13,7 +17,7 @@ MAX_PAYLOAD_BYTES = 4096
 ALLOWED_FIELDS = {"origin", "destination", "target_time"}
 
 
-class BS_UberRouteService(BusinessService):
+class BsUberRouteService(BusinessService):
     def on_process_input(self, input):
         """`input` is the parsed request dict handed in by production/wsgi/app.py."""
         from production.messages.schemas import RouteRecommendationMessage, TripRequestMessage
@@ -21,7 +25,7 @@ class BS_UberRouteService(BusinessService):
 
         error = self._validate(input)
         if error:
-            log_event("BS_UberRouteService", "request_received", outcome="error",
+            log_event("BsUberRouteService", "request_received", outcome="error",
                        error_message=error)
             return self.OKStatus(), RouteRecommendationMessage(
                 error_code="invalid_request", error_message=error
@@ -35,7 +39,7 @@ class BS_UberRouteService(BusinessService):
             target_time=input["target_time"],
         )
 
-        status, response = self.send_request_sync("BP_RouteOrchestrator", request)
+        status, response = self.send_request_sync("BpRouteOrchestrator", request)
         return status, response
 
     @staticmethod

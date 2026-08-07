@@ -19,7 +19,7 @@ def test_triggers_just_over_30_minutes_later():
 
 
 def test_triggers_just_over_30_minutes_earlier():
-    # Direction-agnostic: the rule takes an already-absolute delta (BP_RouteOrchestrator
+    # Direction-agnostic: the rule takes an already-absolute delta (BpRouteOrchestrator
     # computes abs() before calling this), so -31 represents "31 minutes earlier".
     assert waiting_place_should_be_suggested(-31) is True
 

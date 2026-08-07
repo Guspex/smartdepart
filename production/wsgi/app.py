@@ -3,7 +3,7 @@
 
 Deployed as an IRIS-native WSGI Web Application (IRIS 2024.2+, research.md §2). On each
 API request, injects the validated JSON payload into the running production via
-`director.create_business_service(...).process_input(...)` — BS_UberRouteService is
+`director.create_business_service(...).process_input(...)` — BsUberRouteService is
 adapterless, so this WSGI callable *is* its inbound adapter (constitution Principle I:
 "expose its interface via the WSGI protocol").
 
@@ -18,7 +18,7 @@ import uuid
 
 from intersystems_pyprod import director
 
-_SERVICE_CLASS = "UberRoute.BS_UberRouteService"
+_SERVICE_CLASS = "UberRoute.BsUberRouteService"
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 _STATUS_BY_ERROR_CODE = {
@@ -57,7 +57,7 @@ def application(environ, start_response):
     if not status:
         return _respond(start_response, "503 Service Unavailable",
                          {"error": "service_unavailable",
-                          "message": "Could not reach BS_UberRouteService"})
+                          "message": "Could not reach BsUberRouteService"})
 
     _, response = service.process_input(payload)
 

@@ -22,7 +22,7 @@ _last_call_at = 0.0
 def geocode(location_text: str, timeout: float = 5.0) -> Optional[tuple[float, float]]:
     """Resolve free-text location to (lat, lng); returns None if it can't be resolved.
 
-    Callers (BP_RouteOrchestrator) must treat None as "location not found" and map it
+    Callers (BpRouteOrchestrator) must treat None as "location not found" and map it
     to the 422 `location_not_found` contract response (FR-011).
     """
     global _last_call_at

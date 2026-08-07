@@ -10,7 +10,7 @@ iris_package_name = "UberRoute"
 
 
 class TripRequestMessage(JsonSerialize):
-    """The validated payload BS_UberRouteService hands to BP_RouteOrchestrator (FR-001)."""
+    """The validated payload BsUberRouteService hands to BpRouteOrchestrator (FR-001)."""
 
     session_id: str = Column(default="", datatype="%VarString")
     origin: str = Column(default="", datatype="%VarString")
@@ -19,10 +19,10 @@ class TripRequestMessage(JsonSerialize):
 
 
 class RouteRecommendationMessage(JsonSerialize):
-    """BP_RouteOrchestrator's response, echoed back out through BS_UberRouteService.
+    """BpRouteOrchestrator's response, echoed back out through BsUberRouteService.
 
     `waiting_place_*` fields are static defaults (`waiting_place_suggested=False`,
-    the rest empty) until the Business Rule + BO_HybridRAGEngine populate them
+    the rest empty) until the Business Rule + BoHybridRagEngine populate them
     (tasks.md T032-T034; contracts/bs_uber_route_service.md).
     """
 
@@ -44,7 +44,7 @@ class RouteRecommendationMessage(JsonSerialize):
 
 
 class WaitingPlaceQueryMessage(JsonSerialize):
-    """Request BP_RouteOrchestrator sends to BO_HybridRAGEngine when the Business Rule fires."""
+    """Request BpRouteOrchestrator sends to BoHybridRagEngine when the Business Rule fires."""
 
     session_id: str = Column(default="", datatype="%VarString")
     origin_lat: float = Column(default=0.0, datatype="%Numeric")
@@ -54,7 +54,7 @@ class WaitingPlaceQueryMessage(JsonSerialize):
 
 
 class FarePredictionQueryMessage(JsonSerialize):
-    """Request BP_RouteOrchestrator sends to BO_IntegratedMLPredictor per candidate time."""
+    """Request BpRouteOrchestrator sends to BoIntegratedMlPredictor per candidate time."""
 
     session_id: str = Column(default="", datatype="%VarString")
     candidate_time: str = Column(default="", datatype="%VarString")
@@ -63,7 +63,7 @@ class FarePredictionQueryMessage(JsonSerialize):
 
 
 class FarePredictionResultMessage(JsonSerialize):
-    """BO_IntegratedMLPredictor's response for one candidate time."""
+    """BoIntegratedMlPredictor's response for one candidate time."""
 
     candidate_time: str = Column(default="", datatype="%VarString")
     predicted_fare: float = Column(default=0.0, datatype="%Numeric")
@@ -72,7 +72,7 @@ class FarePredictionResultMessage(JsonSerialize):
 
 
 class WaitingPlaceResultMessage(JsonSerialize):
-    """BO_HybridRAGEngine's response — the single best-ranked waiting place, if any."""
+    """BoHybridRagEngine's response — the single best-ranked waiting place, if any."""
 
     found: bool = Column(default=False, datatype="%Boolean")
     name: str = Column(default="", datatype="%VarString")
