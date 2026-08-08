@@ -567,3 +567,19 @@ same instance.** Confirmed methodically (against a correctly-`DispatchClass`-con
 password), and `POST /uberapp/api/uber-route/recommend` returns correctly-routed JSON — both
 verified over real HTTP, not just via direct Python function calls. This closes the remaining
 gap from §14 (the frontend was runnable but not yet reachable over HTTP).
+
+**One more bug found and fixed while verifying the form in a real browser**:
+`production/wsgi/static/index.html`'s `fetch()` call used an absolute path,
+`fetch("/api/uber-route/recommend", ...)`, which resolves against the *domain root*
+regardless of where the app is mounted — since the app is mounted at `/uberapp/`, not `/`,
+this hit a path outside the app entirely and failed with a generic browser network error
+("Não foi possível falar com o servidor"), even though the server-side route matching in
+`production/wsgi/app.py` (which compares `PATH_INFO`, already stripped of the mount prefix by
+the WSGI spec) was correct. Fixed by changing it to a relative path,
+`fetch("api/uber-route/recommend", ...)`, which resolves against the current page URL
+(`/uberapp/`) instead. Verified live in a real browser session (filled the form, submitted,
+confirmed the request reached `/uberapp/api/uber-route/recommend` and rendered the expected
+"não foi possível calcular a recomendação agora" message from the `503
+prediction_unavailable` response — not a network error). Note this fix depends on the app
+always being accessed with the trailing slash (`/uberapp/`, not `/uberapp` — the latter 404s
+with no redirect on this build, confirmed separately).

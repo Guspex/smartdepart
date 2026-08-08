@@ -239,7 +239,7 @@
     submitBtn.innerHTML = '<span class="spinner"></span>Calculando…';
     resultEl.innerHTML = "";
 
-    fetch("/api/uber-route/recommend", {
+    fetch("api/uber-route/recommend", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ origin: origin, destination: destination, target_time: targetTime }),
