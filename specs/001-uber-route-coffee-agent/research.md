@@ -583,3 +583,111 @@ confirmed the request reached `/uberapp/api/uber-route/recommend` and rendered t
 prediction_unavailable` response — not a network error). Note this fix depends on the app
 always being accessed with the trailing slash (`/uberapp/`, not `/uberapp` — the latter 404s
 with no redirect on this build, confirmed separately).
+
+## 16. Unblocking `FarePredictor` without `TRAIN MODEL`: import a PMML model instead
+
+**Decision**: since `TRAIN MODEL` cannot run on this Community Edition image (§14: no AutoML
+provider installed, `SQLCODE -186`), and a DataRobot ML configuration was ruled out (requires
+a paid external account/API token this session has no access to), `FarePredictor` is trained
+**outside** IRIS with plain `scikit-learn` and imported into IntegratedML via the built-in
+`%ML.PMML.Provider` — a provider that does not train at all, it just imports an
+already-trained model exported to the PMML standard (`%ML.PMML.Provider`'s own class comment,
+read via `%SYSTEM.OBJ.Export`, since the class predates and is unrelated to any of this
+session's Python-embedding issues: *"This Provider does not train models based on a dataset,
+but can be used to import a model built elsewhere and exported to [PMML]"*). This needs no
+external account, no network calls, and no working AutoML — it is IntegratedML's documented
+mechanism for exactly this situation (a pre-built `%PMML` ML configuration ships out of the
+box alongside `%AutoML` and `%H2O`).
+
+**Training pipeline**: `models/train_fare_predictor.py` reads `data/trip_history_seed.csv`
+(238 rows, the same seed data the original `TRAIN MODEL FROM TripHistory` approach was meant
+to use), fits a plain `sklearn.linear_model.LinearRegression`, and exports it with
+`nyoka.skl_to_pmml`. `nyoka`'s PMML export does not support arbitrary preprocessing steps
+reliably (a `ColumnTransformer`-based `OneHotEncoder` for the categorical `PickupTime` field
+raised `TypeError: This PreProcessing Task is not Supported`; falling back to the
+`sklearn_pandas.DataFrameMapper` pattern nyoka's own examples use failed too, for an unrelated
+reason — `sklearn_pandas` 2.x is incompatible with `scikit-learn` 1.9's `sklearn.utils` API,
+`ImportError: cannot import name 'tosequence'`). Rather than fight either library further, the
+feature set was changed to be **fully numeric**: `PickupTime` ("HH:MM") is converted to
+`PickupMinutes` (minutes-since-midnight, an integer) before training, sidestepping
+categorical encoding entirely. Trained on all 238 rows (no held-out test split, given the
+sample size and that this is meant to unblock the pipeline, not compete on predictive
+accuracy): R² ≈ 0.947 on the training data. The resulting `RegressionModel` PMML is a flat
+linear equation over `PickupMinutes`, `DayOfWeek`, `DistanceKm`, `DemandFactor` — inspected
+directly (it's plain XML) to confirm the field names and a plausible coefficient sign/magnitude
+pattern (distance and demand dominate the price; time-of-day and day-of-week have small
+effects, matching how the synthetic seed data was generated).
+
+**Downstream schema/query changes this forced**: because PMML has no portable way to express
+"parse an HH:MM string into a number" as an importable transform, and `CREATE MODEL ... FROM
+UberRoute.TripHistory` would otherwise infer `PickupTime` as `VARCHAR(5)` (TripHistory's
+actual storage type) as a *string* feature, `sql/004_integratedml.sql` was rewritten to use
+`CREATE MODEL FarePredictor PREDICTING (FinalPrice) WITH (PickupMinutes INTEGER, DayOfWeek
+INTEGER, DistanceKm DOUBLE, DemandFactor DOUBLE)` — an explicit feature-column clause instead
+of inferring from the table — and `production/hosts/bo_integratedml_predictor.py` now
+converts `candidate_time` ("HH:MM") to minutes-since-midnight (`_minutes_since_midnight`)
+before calling `PREDICT()`, instead of passing the raw string.
+
+**Four further syntax/config bugs found getting `CREATE MODEL`/`TRAIN MODEL`/`PREDICT()` to
+actually run**, none related to PMML specifically — likely latent since the original
+`TRAIN MODEL FarePredictor` (§14) never got far enough to hit any of them:
+1. **`CREATE MODEL`'s `model-name` must be unqualified.** `CREATE MODEL UberRoute.FarePredictor
+   PREDICTING (...) WITH (...)` (schema-qualified, matching how every table name in this
+   project is written) is a parser error: `PREDICTING expected, . found`, pointing at the `.`
+   right after `UberRoute`. Dropping the `UberRoute.` prefix (`CREATE MODEL FarePredictor
+   ...`) works. (Table names, e.g. `UberRoute.TripHistory`, are unaffected — this is specific
+   to `CREATE MODEL`'s `model-name`.)
+2. **`TRAIN MODEL`'s `FROM` subquery does not accept inline `CAST`/`SUBSTRING` expressions.**
+   `TRAIN MODEL FarePredictor FROM (SELECT (CAST(SUBSTRING(PickupTime,1,2) AS INTEGER)*60 + ...)
+   AS PickupMinutes, ... FROM UberRoute.TripHistory) USING {...}` fails with `Field
+   'PICKUPTIME' not found in the applicable tables`, even though the identical `SELECT`
+   (without wrapping it in `TRAIN MODEL ... FROM (...)`) runs correctly as plain SQL. Worked
+   around by precomputing the same expression into a `CREATE VIEW
+   UberRoute.TripHistoryForTraining AS SELECT (CAST(...) ...) FROM UberRoute.TripHistory` and
+   pointing `TRAIN MODEL ... FROM UberRoute.TripHistoryForTraining` at the view instead — this
+   parses fine.
+3. **`TRAIN MODEL ... USING {"file_name": ...}` alone still tries the default `%AutoML`
+   provider**, failing with `%ML Provider 'AutoML' is not available on this instance` — the
+   `USING` clause's `file_name` key only configures the PMML provider once it's actually
+   selected; it does not select it. Fixed by running `SET ML CONFIGURATION %PMML;` as its own
+   statement before `TRAIN MODEL` (the pre-built `%PMML` configuration, confirmed to ship by
+   default alongside `%AutoML`/`%H2O`). This selection only matters at `TRAIN`/import time —
+   confirmed a fresh session with no `SET ML CONFIGURATION` at all can still run `PREDICT()`
+   against the already-imported model correctly, since the provider is now baked into the
+   trained-model record itself, not re-resolved per query.
+4. **`PREDICT(model USING (col1, col2, ...))` is not valid syntax** — despite being what this
+   project's `research.md` §7 and the original `BoIntegratedMlPredictor` code assumed
+   (unverified live at the time, per that section's own text). Live, it's a parser error:
+   `) expected, USING found`. The actual, working form omits `USING` entirely —
+   `PREDICT(model)` — and matches feature columns *by name* against whatever the `FROM` row
+   context provides (confirmed: `SELECT PREDICT(FarePredictor) AS PredictedPrice FROM (SELECT
+   ? AS PickupMinutes, ? AS DayOfWeek, ? AS DistanceKm, ? AS DemandFactor)` works correctly
+   with positional bind parameters). `production/hosts/bo_integratedml_predictor.py` and
+   `sql/004_integratedml.sql`'s example comment were both corrected to drop the `USING`
+   clause.
+
+**Business Operation Python changes require a production restart to take effect** — copying
+an updated `.py` host file into the container (as done throughout §14/§15) was *not* enough
+here; the running `BoIntegratedMlPredictor` worker job kept using its already-imported (stale)
+Python module and returned `Field 'PICKUPMINUTES' not found in the applicable tables` (the
+old `PREDICT(... USING (...))` query) even after the file on disk was updated and
+`__pycache__` cleared. This is unlike the WSGI app (`%SYS.Python.WSGI.ImportWSGIApplication`
+re-imports fresh per request, so `production/wsgi/app.py` edits took effect immediately in
+§14/§15) — pyprod's compiled Business Operation hosts import their Python module once and
+keep it alive in the worker job's long-running interpreter for the job's lifetime. Fixed with
+`Ens.Director.StopProduction()` then `StartProduction()` (confirmed via
+`Ens_Config.Production` for the running production's name), which respawns the worker jobs
+and re-imports the (now current) Python source.
+
+**End-to-end result**: `POST /uberapp/api/uber-route/recommend` now returns `200 OK` with a
+real predicted fare and recommended time, instead of `503 prediction_unavailable`, confirmed
+over real HTTP. One thing this surfaced that is **not** an IntegratedML/PMML issue: a live
+test (Av. Paulista 1000 → Rua Augusta 500, both São Paulo) returned an implausibly high fare
+(R$314.99) — traced directly to `production/adapters/geocoding_adapter.py`'s geocoder
+resolving "Rua Augusta, 500, Sao Paulo" to coordinates roughly 96 km from "Av. Paulista, 1000,
+Sao Paulo" (verified by calling `geocode()` on both strings directly and computing the
+haversine distance: `96.47` km), when the real streets are close together in São Paulo city.
+`FarePredictor` correctly priced *that* (wrong) distance — plugging the same inputs back
+through `PREDICT()` directly reproduces the R$314.99 figure exactly. This is a geocoding
+address-resolution accuracy issue, pre-existing and unrelated to this session's ML work; not
+investigated further here (out of scope for "get FarePredictor working").

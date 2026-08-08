@@ -68,20 +68,34 @@ class BoIntegratedMlPredictor(BusinessOperation):
 
     @staticmethod
     def _predict_fare(candidate_time: str, day_of_week: int, distance_km: float) -> float:
-        """Run the IntegratedML predictive query (research.md §7).
+        """Run the IntegratedML predictive query (research.md §7, §16).
 
         Demand factor is not known ahead of time for a hypothetical candidate slot, so a
         neutral demand_factor=1.0 is passed — FarePredictor was trained on historical
         demand_factor alongside time/day/distance, so this still lets the model's
         time-of-day and day-of-week coefficients drive the fare estimate.
+
+        FarePredictor's PickupMinutes feature is minutes-since-midnight (an integer), not
+        the "HH:MM" string used elsewhere for display — see research.md §16 for why (the
+        PMML model imported via %ML.PMML.Provider needs a numeric time feature; TRAIN MODEL
+        itself cannot run on this Community Edition image, so the model is trained outside
+        IRIS and imported as PMML instead).
         """
+        pickup_minutes = BoIntegratedMlPredictor._minutes_since_midnight(candidate_time)
+        # PREDICT(model) with no USING clause matches feature columns by name against the
+        # FROM row context -- PREDICT(model USING (...)) is not valid IntegratedML syntax
+        # (verified live: SQLCODE parser error "USING found"; research.md §16).
         sql = (
-            "SELECT PREDICT(FarePredictor USING "
-            "(PickupTime, DayOfWeek, DistanceKm, DemandFactor)) AS PredictedPrice "
-            "FROM (SELECT ? AS PickupTime, ? AS DayOfWeek, ? AS DistanceKm, ? AS DemandFactor)"
+            "SELECT PREDICT(FarePredictor) AS PredictedPrice "
+            "FROM (SELECT ? AS PickupMinutes, ? AS DayOfWeek, ? AS DistanceKm, ? AS DemandFactor)"
         )
         stmt = iris.sql.prepare(sql)
-        rs = stmt.execute(candidate_time, day_of_week, distance_km, 1.0)
+        rs = stmt.execute(pickup_minutes, day_of_week, distance_km, 1.0)
         for row in rs:
             return float(row[0])
         raise RuntimeError("FarePredictor returned no prediction row")
+
+    @staticmethod
+    def _minutes_since_midnight(hhmm: str) -> int:
+        hours, minutes = hhmm.split(":")
+        return int(hours) * 60 + int(minutes)

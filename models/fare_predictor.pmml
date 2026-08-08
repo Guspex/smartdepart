@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PMML xmlns="http://www.dmg.org/PMML-4_4" version="4.4.1">
+    <Header copyright="Copyright (c) 2021 Software AG" description="Default description">
+        <Application name="Nyoka" version="5.5.0"/>
+        <Timestamp>2026-08-07 22:55:05.159873</Timestamp>
+    </Header>
+    <DataDictionary numberOfFields="5">
+        <DataField name="PickupMinutes" optype="continuous" dataType="double"/>
+        <DataField name="DayOfWeek" optype="continuous" dataType="double"/>
+        <DataField name="DistanceKm" optype="continuous" dataType="double"/>
+        <DataField name="DemandFactor" optype="continuous" dataType="double"/>
+        <DataField name="FinalPrice" optype="continuous" dataType="double"/>
+    </DataDictionary>
+    <RegressionModel modelName="LinearRegression" functionName="regression">
+        <MiningSchema>
+            <MiningField name="PickupMinutes" usageType="active" optype="continuous"/>
+            <MiningField name="DayOfWeek" usageType="active" optype="continuous"/>
+            <MiningField name="DistanceKm" usageType="active" optype="continuous"/>
+            <MiningField name="DemandFactor" usageType="active" optype="continuous"/>
+            <MiningField name="FinalPrice" usageType="target" optype="continuous"/>
+        </MiningSchema>
+        <Output>
+            <OutputField name="predicted_FinalPrice" optype="continuous" dataType="double" feature="predictedValue"/>
+        </Output>
+        <RegressionTable intercept="-31.8862998035026521">
+            <NumericPredictor name="PickupMinutes" exponent="1" coefficient="0.0003501723189738"/>
+            <NumericPredictor name="DayOfWeek" exponent="1" coefficient="-0.1967793685544557"/>
+            <NumericPredictor name="DistanceKm" exponent="1" coefficient="3.3973611244681212"/>
+            <NumericPredictor name="DemandFactor" exponent="1" coefficient="20.0912305739482591"/>
+        </RegressionTable>
+    </RegressionModel>
+</PMML>
