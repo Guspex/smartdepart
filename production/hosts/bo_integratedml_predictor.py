@@ -66,14 +66,21 @@ class BoIntegratedMlPredictor(BusinessOperation):
         )
         return self.OKStatus(), response
 
+    # FarePredictor's training data (data/trip_history_seed.csv) has DemandFactor ranging
+    # 0.92-2.93, mean/median ~1.82 -- there is no "1.0 = neutral" convention in this data.
+    # Passing 1.0 (near the observed *minimum*) for every candidate, combined with a short
+    # real-world distance, extrapolated to negative predicted fares (research.md §17: a live
+    # Florianópolis test returned -R$2.08). Using the training data's mean instead keeps the
+    # demand-unknown assumption inside the distribution the linear model was actually fit on.
+    _NEUTRAL_DEMAND_FACTOR = 1.82
+
+    # Safety net for the underlying model's linear extrapolation, which has no built-in
+    # non-negativity constraint (research.md §17) -- a real fare is never free or negative.
+    _MINIMUM_FARE = 5.0
+
     @staticmethod
     def _predict_fare(candidate_time: str, day_of_week: int, distance_km: float) -> float:
-        """Run the IntegratedML predictive query (research.md §7, §16).
-
-        Demand factor is not known ahead of time for a hypothetical candidate slot, so a
-        neutral demand_factor=1.0 is passed — FarePredictor was trained on historical
-        demand_factor alongside time/day/distance, so this still lets the model's
-        time-of-day and day-of-week coefficients drive the fare estimate.
+        """Run the IntegratedML predictive query (research.md §7, §16, §17).
 
         FarePredictor's PickupMinutes feature is minutes-since-midnight (an integer), not
         the "HH:MM" string used elsewhere for display — see research.md §16 for why (the
@@ -90,9 +97,11 @@ class BoIntegratedMlPredictor(BusinessOperation):
             "FROM (SELECT ? AS PickupMinutes, ? AS DayOfWeek, ? AS DistanceKm, ? AS DemandFactor)"
         )
         stmt = iris.sql.prepare(sql)
-        rs = stmt.execute(pickup_minutes, day_of_week, distance_km, 1.0)
+        rs = stmt.execute(
+            pickup_minutes, day_of_week, distance_km, BoIntegratedMlPredictor._NEUTRAL_DEMAND_FACTOR
+        )
         for row in rs:
-            return float(row[0])
+            return max(float(row[0]), BoIntegratedMlPredictor._MINIMUM_FARE)
         raise RuntimeError("FarePredictor returned no prediction row")
 
     @staticmethod

@@ -691,3 +691,36 @@ haversine distance: `96.47` km), when the real streets are close together in Sã
 through `PREDICT()` directly reproduces the R$314.99 figure exactly. This is a geocoding
 address-resolution accuracy issue, pre-existing and unrelated to this session's ML work; not
 investigated further here (out of scope for "get FarePredictor working").
+
+## 17. `FarePredictor` could return negative fares — unbounded linear extrapolation + an
+out-of-distribution hardcoded `DemandFactor`
+
+**Finding**: a live user test with a short, correctly-geocoded Florianópolis trip
+(~2-3 km) returned `"estimated_fare": -2.08` — a linear regression has no non-negativity
+constraint, so it can and does extrapolate below zero outside the region its coefficients
+were fit on.
+
+**Root cause, isolated exactly**: `BoIntegratedMlPredictor._predict_fare` (§16) passed a
+hardcoded `demand_factor=1.0` for every candidate (comment: "demand factor is not known
+ahead of time... a neutral demand_factor=1.0 is passed"). But `data/trip_history_seed.csv`'s
+`DemandFactor` column ranges `0.92`–`2.93` with mean/median ≈ `1.82` — there is no "1.0 =
+neutral" convention in this data; `1.0` sits near the observed *minimum*. Combined with a
+short real-world distance, and `DemandFactor`'s comparatively large regression coefficient
+(`20.09`, vs. `3.40` for `DistanceKm`), this pushed the linear prediction below zero.
+Reproduced exactly by hand from the PMML's own coefficients
+(`intercept=-31.886 + 0.00035*PickupMinutes - 0.197*DayOfWeek + 3.397*DistanceKm +
+20.091*DemandFactor`): at `distance_km=3.0, demand_factor=1.0`, the formula evaluates to
+`-2.12` — matching the observed `-2.08` (small residual difference just from the exact
+distance/time/day not being read off the screenshot precisely).
+
+**Fixed** in `production/hosts/bo_integratedml_predictor.py`, two changes:
+1. The hardcoded demand-factor placeholder changed from `1.0` to `1.82` (the training data's
+   mean) — keeps the "demand unknown for a hypothetical future slot" assumption inside the
+   distribution the model was actually fit on, instead of near its edge.
+2. A `_MINIMUM_FARE = 5.0` floor: `max(predicted_fare, _MINIMUM_FARE)`, since the underlying
+   model has no built-in floor and a real fare is never zero or negative regardless of how
+   demand-factor is chosen.
+
+**Verified live**: the same Florianópolis trip that produced `-R$2.08` now returns
+`R$14.40` — plausible for a short trip, and consistent with the cheapest fares actually
+observed in the training data (minimum `R$9.60` at `distance_km≈2`).
