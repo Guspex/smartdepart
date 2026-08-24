@@ -17,8 +17,9 @@ def _make_service() -> BsUberRouteService:
 def test_valid_request_is_forwarded_to_bp_route_orchestrator():
     service = _make_service()
     expected_response = RouteRecommendationMessage(
-        recommended_time="18:05", estimated_fare=27.90, delta_minutes=5,
-        waiting_place_suggested=False,
+        options_json='[{"label": "ideal", "wait_minutes": 0, "departure_time": "18:05", '
+                     '"arrival_time": "18:20", "estimated_fare": 27.90, '
+                     '"waiting_place": null, "waiting_place_unavailable_reason": null}]',
     )
     service.send_request_sync = MagicMock(return_value=(1, expected_response))
 

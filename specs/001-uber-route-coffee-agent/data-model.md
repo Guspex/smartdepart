@@ -33,21 +33,22 @@ well-formed before a `TripRequest` row is written; if geocoding cannot resolve `
 ## RouteRecommendation
 
 The system's answer to a `TripRequest` (spec Key Entity "Route Recommendation"; FR-003–FR-006).
+**Amended (research.md §20)**: the response is now three fixed departure options
+("ideal"/"30min_earlier"/"60min_earlier"), not one auto-picked time. This table predates that
+redesign and wasn't given a schema migration for it — it still stores just the "ideal"
+option's time/fare for simple SQL querying, while `RequestLog.Payload` (below) carries the
+full 3-option breakdown as JSON.
 
 | Field | Type | Notes |
 |---|---|---|
 | `ID` | Identity | Primary key |
 | `TripRequestID` | Integer (FK → TripRequest) | NOT NULL |
-| `RecommendedTime` | TIME | Departure time chosen from the IntegratedML candidate scan (research.md §7); always a departure, never the arrival deadline itself |
+| `RecommendedTime` | TIME | The "ideal" option's departure time (the naive departure — arrival deadline minus estimated travel time; research.md §20) |
 | `EstimatedArrivalTime` | TIME | Estimated arrival at `Destination` if leaving at `RecommendedTime`, from distance + `TrafficWeatherReference` congestion — not persisted as its own column (recomputed on read), included here for documentation |
-| `EstimatedFare` | DECIMAL(8,2) | `FarePredictor` prediction for `RecommendedTime` |
-| `DeltaMinutes` | Integer | `ABS(RecommendedTime - NaiveDepartureTime)`, where `NaiveDepartureTime = TripRequest.TargetTime - EstimatedTravelMinutes` (typical-traffic baseline) — see spec.md Assumptions |
-| `WaitingPlaceTriggered` | BIT | `1` iff `DeltaMinutes > 30` — output of the Business Rule (research.md §8) |
+| `EstimatedFare` | DECIMAL(8,2) | `FarePredictor` prediction for the "ideal" option's `RecommendedTime` |
+| `DeltaMinutes` | Integer | Unused since the §20 redesign (always `0`) — kept as a column for backward compatibility, not recomputed |
+| `WaitingPlaceTriggered` | BIT | `1` iff any of the three options has a waiting-place suggestion (the "30min_earlier"/"60min_earlier" options always attempt one) |
 | `CreatedAt` | TIMESTAMP | Defaults to `CURRENT_TIMESTAMP` |
-
-**Validation** (FR-004–FR-006): `DeltaMinutes` and `WaitingPlaceTriggered` are always
-consistent with each other and MUST be recomputed by the Business Rule, never set directly by
-client input.
 
 ## WaitingPlace
 
@@ -130,7 +131,7 @@ External Integration Standards, and the audit trail behind FR-012 / Constitution
 | Field | Type | Notes |
 |---|---|---|
 | `SessionID` | VARCHAR(64) | Correlates to the interoperability message trace |
-| `Payload` | JSON (`%DynamicObject`/`%Library.DynamicObject` document column) | `{request, response, delta_minutes, waiting_place_triggered, host_timings}` |
+| `Payload` | JSON (`%DynamicObject`/`%Library.DynamicObject` document column) | `{request, response: {options: [...]}}` — `options` is the full 3-option breakdown (research.md §20), each with its own waiting-place detail |
 | `CreatedAt` | TIMESTAMP | Defaults to `CURRENT_TIMESTAMP` |
 
 ## Entity Relationships

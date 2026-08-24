@@ -1,9 +1,12 @@
-"""Integration tests for User Story 2's acceptance scenarios (tasks.md T026):
-recommended time later than requested, earlier than requested, and no place found nearby.
+"""Integration tests for User Story 2's 3-option departure flow (research.md §20):
+every response returns an "ideal", "30min_earlier" and "60min_earlier" option, and the two
+earlier-departure options always carry a waiting-place suggestion (or an explanation why
+none was found) — no longer conditional on a delta threshold.
 
 BpRouteOrchestrator's calls to BoIntegratedMlPredictor/BoHybridRagEngine/geocoding are
-mocked so this test exercises the orchestration + Business Rule logic in isolation.
+mocked so this test exercises the orchestration logic in isolation.
 """
+import json
 from unittest.mock import MagicMock, patch
 
 from production.hosts.bp_route_orchestrator import BpRouteOrchestrator
@@ -18,24 +21,16 @@ def _make_bp() -> BpRouteOrchestrator:
     return BpRouteOrchestrator(iris_host_object=MagicMock())
 
 
-def _fare_favoring_latest_candidate(candidate_time: str) -> FarePredictionResultMessage:
-    """Cheapest fare goes to whichever candidate is latest in the day — baseline-agnostic
-    (BpRouteOrchestrator scans candidates around a computed naive departure, not around
-    the raw target_time, so tests can't assume a specific absolute candidate string)."""
-    hour, minute = (int(p) for p in candidate_time.split(":"))
-    minutes_of_day = hour * 60 + minute
-    fare = 30.0 - (minutes_of_day * 0.01)
-    return FarePredictionResultMessage(candidate_time=candidate_time, predicted_fare=fare, ok=True)
+def _fare_for(candidate_time: str) -> FarePredictionResultMessage:
+    return FarePredictionResultMessage(candidate_time=candidate_time, predicted_fare=20.0, ok=True)
 
 
-def test_recommended_time_later_triggers_waiting_place():
+def test_earlier_options_carry_waiting_place_when_one_is_found():
     bp = _make_bp()
 
     def fake_send_sync(target, request):
         if target == "BoIntegratedMlPredictor":
-            # Cheapest fare is the latest candidate (largest positive offset scanned,
-            # +60 min) -> a big positive delta from the naive departure baseline.
-            return 1, _fare_favoring_latest_candidate(request.candidate_time)
+            return 1, _fare_for(request.candidate_time)
         if target == "BoHybridRagEngine":
             return 1, WaitingPlaceResultMessage(
                 found=True, name="Cafe Central", address="Rua X", category="cafe",
@@ -53,16 +48,24 @@ def test_recommended_time_later_triggers_waiting_place():
                                           target_time="18:00")
             status, response = bp.on_request(request)
 
-    assert response.waiting_place_suggested is True
-    assert response.waiting_place_name == "Cafe Central"
+    options = json.loads(response.options_json)
+    assert [o["label"] for o in options] == ["ideal", "30min_earlier", "60min_earlier"]
+
+    ideal = options[0]
+    assert ideal["wait_minutes"] == 0
+    assert ideal["waiting_place"] is None
+
+    for option in options[1:]:
+        assert option["wait_minutes"] in (30, 60)
+        assert option["waiting_place"]["name"] == "Cafe Central"
 
 
-def test_no_place_found_still_returns_recommendation():
+def test_no_place_found_still_returns_all_options():
     bp = _make_bp()
 
     def fake_send_sync(target, request):
         if target == "BoIntegratedMlPredictor":
-            return 1, _fare_favoring_latest_candidate(request.candidate_time)
+            return 1, _fare_for(request.candidate_time)
         if target == "BoHybridRagEngine":
             return 1, WaitingPlaceResultMessage(
                 found=False, unavailable_reason="No nearby waiting place found within 1.0 km"
@@ -79,12 +82,13 @@ def test_no_place_found_still_returns_recommendation():
                                           target_time="18:00")
             status, response = bp.on_request(request)
 
-    # FR-010: recommendation still returned even with no waiting place.
+    # FR-010: recommendations still returned even with no waiting place.
     assert response.error_code == ""
-    assert response.recommended_time != ""
-    assert response.waiting_place_suggested is True
-    assert response.waiting_place_name == ""
-    assert response.waiting_place_unavailable_reason == "No nearby waiting place found within 1.0 km"
+    options = json.loads(response.options_json)
+    assert len(options) == 3
+    for option in options[1:]:
+        assert option["waiting_place"] is None
+        assert option["waiting_place_unavailable_reason"] == "No nearby waiting place found within 1.0 km"
 
 
 def test_unresolvable_location_returns_error_before_any_prediction():

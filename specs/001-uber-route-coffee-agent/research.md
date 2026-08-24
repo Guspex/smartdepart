@@ -797,3 +797,97 @@ regardless of the above — its `HEALTHCHECK` command is itself broken (`/bin/sh
 reflection of whether the app actually works. Confirmed the app works via direct HTTP calls
 independent of this label; not fixed (would require recreating the container with a corrected
 health-check command).
+
+## 20. Redesign: three fixed departure options instead of one auto-picked recommendation
+
+**Decision**: replaced the original single-recommendation design (`BpRouteOrchestrator` scans
+several candidate departure times, picks whichever is cheapest, and conditionally attaches a
+waiting-place suggestion only when that pick is more than 30 minutes from a "naive" baseline —
+§7/§8/§16's design) with three **fixed, always-returned** options, all anchored to the same
+naive-departure baseline (arrival deadline minus a typical-traffic travel estimate):
+- `ideal` — leave at the naive departure time, no extra wait, no waiting-place suggestion.
+- `30min_earlier` — leave 30 minutes before that, with a waiting-place suggestion.
+- `60min_earlier` — leave 60 minutes before that, with a waiting-place suggestion.
+
+Each option is priced independently by a single, direct `PREDICT()` call at its own departure
+time — no more scanning a window of nearby candidates to find a minimum (`_CANDIDATE_OFFSETS
+_MINUTES` and the whole "pick whichever is cheapest" search were removed).
+
+**Rationale**: user feedback on the live app (comparing our estimate against real Uber app
+quotes) surfaced a product requirement not captured in the original spec: the rider wants to
+directly compare "leave now for X" against "leave early, wait somewhere, pay Y" themselves,
+rather than have the system silently pick one time on their behalf and only sometimes explain
+why. This is a genuine product-requirements change, not a bug fix — confirmed with the user
+before implementing (they explicitly chose "options replace the single recommendation" over
+"options are added alongside it").
+
+**What this touched**:
+- `production/messages/schemas.py`: `RouteRecommendationMessage` dropped its flat
+  `recommended_time`/`estimated_arrival_time`/`estimated_fare`/`delta_minutes`/
+  `waiting_place_*` fields for a single `options_json: str` field — a JSON-serialized list of
+  the option dicts. This is still one flat scalar field (a string), which is what pyprod's
+  `JsonSerialize.chunks_from_python()` requires (every declared field must be a JSON-native
+  scalar; a *list* field would not be) — the workaround is that the field's *content* is JSON
+  text, not that the field itself is structured.
+- `production/hosts/bp_route_orchestrator.py`: `on_request` now loops over three
+  `(label, offset)` pairs, building one option dict per label via a new `_build_option`
+  helper (fare prediction + waiting-place lookup for non-zero offsets). The old
+  `business_rules.waiting_place_should_be_suggested()` 30-minute trigger is no longer called
+  from this flow (waiting-place lookups are now unconditional for the two earlier options) —
+  the module and its unit tests are left in place, since the constitution's own rationale for
+  that module (§8) already frames it as a swappable, independently-testable component, not
+  something coupled 1:1 to this specific call site.
+- `production/wsgi/app.py`: reads the raw response's `OptionsJson` PascalCase property (same
+  raw-object/PascalCase pattern as §14) and `json.loads()`s it directly into the HTTP response
+  body's `"options"` array — no more per-field PascalCase→JSON mapping.
+- `production/wsgi/static/index.html`: renders one card per option instead of one
+  recommendation card plus an optional waiting-place card.
+- `UberRoute.RouteRecommendation` (SQL table) was **not** migrated — see data-model.md's
+  amended notes on that table. `UberRoute.RequestLog.Payload` (already a flexible JSON column,
+  constitution Principle II) now carries the full option list instead.
+- `specs/001-uber-route-coffee-agent/spec.md`, `contracts/bs_uber_route_service.md`,
+  `data-model.md`: amended in place (not left stale) to describe the 3-option contract —
+  spec.md's Assumptions section documents this as a post-implementation amendment, matching
+  the pattern already used there for the `target_time` = arrival-deadline clarification.
+
+**Deploying a message *schema* change needs more than a production restart** — this was a
+new wrinkle §14/§16/§19's "restart the production to reload changed Python" guidance didn't
+cover, because those were all *host logic* changes; this one changed `RouteRecommendationMessage`'s
+declared fields. `docker cp`-ing the changed `.py` files and restarting the production still
+left the *IRIS-side ObjectScript class* for `RouteRecommendationMessage` on its old field
+layout (`RecommendedTime`/`EstimatedFare`/... instead of `OptionsJson`) — pyprod only
+generates/compiles those `.cls` files when its CLI is run against the source, which a plain
+production restart never does. Fixed by running the CLI directly:
+`irispython /home/irisowner/.local/bin/intersystems_pyprod -s /tmp/uberroute_app <file.py>`
+against `production/messages/schemas.py` (regenerates all 6 message classes) and each of the
+4 host files in turn (they all depend on the message classes) — confirmed via
+`%Dictionary.ClassDefinition` that `UberRoute.RouteRecommendationMessage` then had the new
+`OptionsJson` property.
+
+**Even after that, the live HTTP endpoint still failed** — `500`, `TypeError: Object of type
+Column is not JSON serializable`, thrown from deep inside `OnProcessInput` on
+`UberRoute.BsUberRouteService.1`. Confusingly, calling the *exact same code path*
+(`director.create_business_service("BsUberRouteService").process_input(...)`, matching what
+`production/wsgi/app.py` does) from a fresh `irispython -c "..."` script worked perfectly,
+every time — as did calling `production.wsgi.app.application()` directly. Only requests
+routed through the real, already-running CSP/private-webserver worker process (i.e., genuine
+HTTP traffic) failed. This pointed at *process-level* staleness distinct from anything a
+production restart touches: IRIS's CSP worker pool is long-lived and holds its own embedded-
+Python interpreter state (`sys.modules`, pyprod's internal message registry) independently of
+`Ens.Director`'s production lifecycle — a `StopProduction`/`StartProduction` cycle (tried
+twice) never reached it. **Fixed** by restarting IRIS itself from inside the container
+(`iris stop IRIS quietly` then `iris start IRIS` — the graceful, IRIS-native restart command,
+not `docker stop`/`restart`, which research.md §19 already established leaves production
+state dirty) and manually re-starting the production afterward (it didn't auto-start this
+time, unlike on a full container boot). This is the first time in the session a *schema*
+change (as opposed to *logic-only* changes) needed redeploying — logic-only host edits really
+do only need `StopProduction`/`StartProduction`, per §14/§16/§19; changing a message class's
+declared fields needs the pyprod CLI re-run **and** a full IRIS restart on top of that.
+
+**Verified live**: after all of the above, `POST /uberapp/api/uber-route/recommend` returns
+`200 OK` with all three options for both a São Paulo address pair and the exact Florianópolis
+addresses from earlier live testing — each option with its own fare, and the two
+earlier-departure options each carrying a `waiting_place_unavailable_reason` (`sentence-
+transformers` isn't installed in this session — a pre-existing, already-documented gap,
+unrelated to this change). Full local test suite (35 tests, including two integration test
+files rewritten for the new response shape) passes.

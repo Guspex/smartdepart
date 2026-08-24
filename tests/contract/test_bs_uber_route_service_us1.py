@@ -1,10 +1,10 @@
-"""Contract tests for POST /api/uber-route/recommend — the 200 (delta<=30min), 400, and
-422 response shapes from contracts/bs_uber_route_service.md (tasks.md T015).
+"""Contract tests for POST /api/uber-route/recommend — the 200 (3-option), 400, and 422
+response shapes from contracts/bs_uber_route_service.md (tasks.md T015; research.md §20).
 
 `director.create_business_service` is mocked so these tests don't require a running IRIS
 production — they verify production/wsgi/app.py's HTTP-layer contract in isolation.
 
-Mock response objects use PascalCase attributes (ErrorCode, RecommendedTime, ...), matching
+Mock response objects use PascalCase attributes (ErrorCode, OptionsJson, ...), matching
 what `service.process_input()` actually returns live: the raw IRIS-side message object, not
 the Python-side snake_case RouteRecommendationMessage (see research.md §14).
 """
@@ -94,22 +94,22 @@ def test_location_not_found_returns_422():
     assert payload["error"] == "location_not_found"
 
 
-def test_delta_leq_30_min_returns_200_with_no_waiting_place():
+def test_returns_200_with_three_options():
+    options = [
+        {"label": "ideal", "wait_minutes": 0, "departure_time": "18:05",
+         "arrival_time": "18:30", "estimated_fare": 27.90,
+         "waiting_place": None, "waiting_place_unavailable_reason": None},
+        {"label": "30min_earlier", "wait_minutes": 30, "departure_time": "17:35",
+         "arrival_time": "18:00", "estimated_fare": 24.10,
+         "waiting_place": {"name": "Cafe X", "address": "Rua Y", "category": "cafe",
+                            "rating": 4.5, "distance_km": 0.3, "rationale": "closest"},
+         "waiting_place_unavailable_reason": None},
+        {"label": "60min_earlier", "wait_minutes": 60, "departure_time": "17:05",
+         "arrival_time": "17:30", "estimated_fare": 21.00,
+         "waiting_place": None, "waiting_place_unavailable_reason": "No place found"},
+    ]
     response = SimpleNamespace(
-        ErrorCode="",
-        TripRequestId=1,
-        RecommendedTime="18:05",
-        EstimatedArrivalTime="18:30",
-        EstimatedFare=27.90,
-        DeltaMinutes=5,
-        WaitingPlaceSuggested=False,
-        WaitingPlaceName="",
-        WaitingPlaceAddress="",
-        WaitingPlaceCategory="",
-        WaitingPlaceRating=0.0,
-        WaitingPlaceDistanceKm=0.0,
-        WaitingPlaceRationale="",
-        WaitingPlaceUnavailableReason="",
+        ErrorCode="", TripRequestId=1, OptionsJson=json.dumps(options),
     )
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):
@@ -117,7 +117,7 @@ def test_delta_leq_30_min_returns_200_with_no_waiting_place():
             {"origin": "A", "destination": "B", "target_time": "18:00"}
         )
     assert status.startswith("200")
-    assert payload["waiting_place_suggested"] is False
-    assert payload["waiting_place"] is None
-    assert payload["recommended_time"] == "18:05"
-    assert payload["estimated_fare"] == 27.90
+    assert [o["label"] for o in payload["options"]] == ["ideal", "30min_earlier", "60min_earlier"]
+    assert payload["options"][0]["waiting_place"] is None
+    assert payload["options"][1]["waiting_place"]["name"] == "Cafe X"
+    assert payload["options"][2]["waiting_place_unavailable_reason"] == "No place found"

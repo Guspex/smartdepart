@@ -296,3 +296,44 @@ time. Tracked here rather than renumbering T001-T044.
   serve the static page; `POST /api/uber-route/recommend` keeps its existing contract;
   anything else returns 404. Added `test_get_root_serves_the_frontend_html` and fixed the
   existing contract tests, which hadn't been setting `PATH_INFO` (all 32 tests still pass).
+
+## Post-MVP Addition: Three fixed departure options replace the single recommendation (research.md §20)
+
+Requested directly by the user after comparing live estimates against real Uber app quotes:
+show 3 comparable options ("leave now", "30 min earlier", "60 min earlier") instead of one
+auto-picked time with a conditional waiting-place suggestion. Confirmed with the user (they
+chose "options replace the single recommendation") before implementing. Tracked here rather
+than renumbering T001-T047.
+
+- [X] T048 Replace `RouteRecommendationMessage`'s flat `recommended_time`/
+  `estimated_arrival_time`/`estimated_fare`/`delta_minutes`/`waiting_place_*` fields with a
+  single `options_json: str` field (a JSON-serialized list of option dicts) in
+  `production/messages/schemas.py` — still one flat scalar field per pyprod's
+  `JsonSerialize` constraint (research.md §20).
+- [X] T049 Rewrite `BpRouteOrchestrator.on_request` (`production/hosts/bp_route_orchestrator.py`)
+  to build three fixed options (`ideal`/`30min_earlier`/`60min_earlier`), each independently
+  priced by a direct `PREDICT()` call (no more candidate-scan-for-minimum), with the two
+  earlier options always requesting a waiting-place suggestion. Removed the now-unused
+  candidate-offset scan and the `business_rules.waiting_place_should_be_suggested()` call
+  site (module + its tests left in place, per its own stated design as a swappable
+  component). Rewrote `_persist` to store the "ideal" option in `RouteRecommendation` (schema
+  unchanged, not migrated) and the full option list in `RequestLog.Payload`.
+- [X] T050 [P] Update `production/wsgi/app.py` to read `OptionsJson` and return
+  `{"trip_request_id", "options": [...]}` instead of per-field PascalCase mapping.
+- [X] T051 [P] Rewrite `production/wsgi/static/index.html` to render one card per option
+  (title, wait badge, departure/arrival/fare, and — for the two earlier options — the
+  waiting-place detail or unavailable-reason) instead of one recommendation card plus an
+  optional waiting-place card.
+- [X] T052 [P] Rewrite `tests/integration/test_user_story_1.py`,
+  `tests/integration/test_user_story_2.py`, `tests/contract/test_bs_uber_route_service_us1.py`,
+  `tests/contract/test_bs_uber_route_service_us2.py` for the 3-option response shape (35/35
+  tests passing).
+- [X] T053 Update spec.md (User Stories 1-2, FR-003–FR-006, FR-010, FR-012, Key Entities,
+  SC-002–SC-003, Assumptions), `contracts/bs_uber_route_service.md`, and `data-model.md` to
+  describe the 3-option contract, per this project's established pattern of amending specs in
+  place for post-implementation product changes (matching T045's `target_time` amendment).
+- [X] T054 Live-verified end-to-end against the running container: redeployed the changed
+  `.py`/`.html` files, restarted the production (Business Process host changes need this to
+  reload — research.md §14/§16/§19), and confirmed `POST /uberapp/api/uber-route/recommend`
+  returns all three options with real fares and waiting-place suggestions for a real
+  Florianópolis address pair.

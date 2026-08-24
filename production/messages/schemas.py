@@ -21,24 +21,16 @@ class TripRequestMessage(JsonSerialize):
 class RouteRecommendationMessage(JsonSerialize):
     """BpRouteOrchestrator's response, echoed back out through BsUberRouteService.
 
-    `waiting_place_*` fields are static defaults (`waiting_place_suggested=False`,
-    the rest empty) until the Business Rule + BoHybridRagEngine populate them
-    (tasks.md T032-T034; contracts/bs_uber_route_service.md).
+    `options_json` holds a JSON-serialized list of up to 3 departure options ("ideal" /
+    "30min_earlier" / "60min_earlier"), each with its own fare estimate and — for the two
+    earlier options — a waiting-place suggestion (research.md §20). It is itself a single
+    %VarString field, not a nested message, because JsonSerialize.chunks_from_python()
+    requires every declared field to be a JSON-native scalar (see module docstring) — a
+    JSON *string* satisfies that; a nested list/object field would not.
     """
 
     trip_request_id: int = Column(default=0, datatype="%Integer")
-    recommended_time: str = Column(default="", datatype="%VarString")
-    estimated_arrival_time: str = Column(default="", datatype="%VarString")
-    estimated_fare: float = Column(default=0.0, datatype="%Numeric")
-    delta_minutes: int = Column(default=0, datatype="%Integer")
-    waiting_place_suggested: bool = Column(default=False, datatype="%Boolean")
-    waiting_place_name: str = Column(default="", datatype="%VarString")
-    waiting_place_address: str = Column(default="", datatype="%VarString")
-    waiting_place_category: str = Column(default="", datatype="%VarString")
-    waiting_place_rating: float = Column(default=0.0, datatype="%Numeric")
-    waiting_place_distance_km: float = Column(default=0.0, datatype="%Numeric")
-    waiting_place_rationale: str = Column(default="", datatype="%VarString")
-    waiting_place_unavailable_reason: str = Column(default="", datatype="%VarString")
+    options_json: str = Column(default="[]", datatype="%VarString")
     error_code: str = Column(default="", datatype="%VarString")
     error_message: str = Column(default="", datatype="%VarString")
 

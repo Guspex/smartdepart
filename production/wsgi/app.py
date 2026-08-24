@@ -69,7 +69,7 @@ def application(environ, start_response):
     # IRIS-side message object, not the Python-side RouteRecommendationMessage
     # — it does not go through pyprod's _createmessage() conversion. The raw
     # object's properties are PascalCase (how pyprod projects Column fields
-    # into ObjectScript, e.g. `recommended_time` -> `RecommendedTime`), not
+    # into ObjectScript, e.g. `options_json` -> `OptionsJson`), not
     # the snake_case names used on the Python side. Verified live against
     # IRIS 2025.3 (see research.md §14) — using snake_case here silently
     # returned None/empty for every field.
@@ -79,29 +79,14 @@ def application(environ, start_response):
         return _respond(start_response, http_status,
                          {"error": error_code, "message": response.ErrorMessage})
 
+    # options_json (research.md §20) is a plain %VarString field holding a JSON-serialized
+    # list of the three departure options — see message schema docstring for why it's a
+    # JSON string rather than a nested message (pyprod's JsonSerialize requires every
+    # field to be a JSON-native scalar).
     body_dict = {
         "trip_request_id": getattr(response, "TripRequestId", 0),
-        "recommended_time": response.RecommendedTime,
-        "estimated_arrival_time": response.EstimatedArrivalTime,
-        "estimated_fare": response.EstimatedFare,
-        "delta_minutes": response.DeltaMinutes,
-        "waiting_place_suggested": bool(response.WaitingPlaceSuggested),
+        "options": json.loads(response.OptionsJson or "[]"),
     }
-    if body_dict["waiting_place_suggested"]:
-        if response.WaitingPlaceName:
-            body_dict["waiting_place"] = {
-                "name": response.WaitingPlaceName,
-                "address": response.WaitingPlaceAddress,
-                "category": response.WaitingPlaceCategory,
-                "rating": response.WaitingPlaceRating,
-                "distance_km": response.WaitingPlaceDistanceKm,
-                "rationale": response.WaitingPlaceRationale,
-            }
-        else:
-            body_dict["waiting_place"] = None
-            body_dict["waiting_place_unavailable_reason"] = response.WaitingPlaceUnavailableReason
-    else:
-        body_dict["waiting_place"] = None
 
     return _respond(start_response, "200 OK", body_dict)
 

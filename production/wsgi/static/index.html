@@ -95,6 +95,33 @@
     color: var(--muted);
     margin: 0 0 12px;
   }
+  .card.option h2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .wait-badge {
+    background: rgba(53, 196, 143, 0.15);
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+  .waiting-place {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--panel-border);
+  }
+  .waiting-place-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
   .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
   .row:last-child { margin-bottom: 0; }
   .row .label { color: var(--muted); font-size: 0.88rem; }
@@ -132,8 +159,8 @@
   <h1>Para onde vamos?</h1>
   <p class="subtitle">
     Diga de onde você sai, para onde vai, e a que horas precisa chegar —
-    calculamos o melhor horário de saída e, se sobrar muito tempo, sugerimos
-    um café pertinho pra esperar.
+    mostramos 3 opções: sair agora, ou sair 30/60 minutos mais cedo esperando
+    num café ou restaurante por perto, pra você comparar tempo de espera e tarifa.
   </p>
 
   <form id="trip-form">
@@ -180,45 +207,66 @@
       '<div class="card error-card">' + escapeHtml(message) + "</div>";
   }
 
-  function renderResult(data) {
-    var html = "";
+  var OPTION_TITLES = {
+    ideal: "Sair agora",
+    "30min_earlier": "Sair 30 minutos mais cedo",
+    "60min_earlier": "Sair 60 minutos mais cedo",
+  };
 
-    html += '<div class="card">';
-    html += "<h2>Recomendação de viagem</h2>";
-    html += '<div class="row"><span class="label">Saia às</span><span class="value big">' +
-      escapeHtml(data.recommended_time) + "</span></div>";
-    if (data.estimated_arrival_time) {
-      html += '<div class="row"><span class="label">Chegada estimada</span><span class="value">' +
-        escapeHtml(data.estimated_arrival_time) + "</span></div>";
-    }
-    html += '<div class="row"><span class="label">Tarifa estimada</span><span class="value">R$ ' +
-      Number(data.estimated_fare).toFixed(2) + "</span></div>";
-    html += "</div>";
-
-    if (data.waiting_place_suggested) {
-      if (data.waiting_place) {
-        var p = data.waiting_place;
-        html += '<div class="card">';
-        html += "<h2>Enquanto isso, que tal esperar aqui?</h2>";
-        html += '<div class="place-name">' + escapeHtml(p.name) + "</div>";
-        html += '<div class="place-address">' + escapeHtml(p.address) + "</div>";
-        html += '<div class="place-meta">';
-        if (p.category) html += "<span>" + escapeHtml(p.category) + "</span>";
-        if (p.distance_km != null) html += "<span>" + Number(p.distance_km).toFixed(1) + " km</span>";
-        if (p.rating) html += "<span>&#9733; " + Number(p.rating).toFixed(1) + "</span>";
-        html += "</div>";
-        if (p.rationale) {
-          html += '<div class="rationale">' + escapeHtml(p.rationale) + "</div>";
-        }
-        html += "</div>";
-      } else {
-        html += '<div class="card">';
-        html += "<h2>Café por perto</h2>";
-        html += '<div class="hint">' +
-          escapeHtml(data.waiting_place_unavailable_reason || "Nenhum lugar próximo encontrado.") +
-          "</div></div>";
+  function renderWaitingPlace(option) {
+    var html = '<div class="waiting-place">';
+    html += '<div class="waiting-place-label">Onde esperar</div>';
+    if (option.waiting_place) {
+      var p = option.waiting_place;
+      html += '<div class="place-name">' + escapeHtml(p.name) + "</div>";
+      html += '<div class="place-address">' + escapeHtml(p.address) + "</div>";
+      html += '<div class="place-meta">';
+      if (p.category) html += "<span>" + escapeHtml(p.category) + "</span>";
+      if (p.distance_km != null) html += "<span>" + Number(p.distance_km).toFixed(1) + " km</span>";
+      if (p.rating) html += "<span>&#9733; " + Number(p.rating).toFixed(1) + "</span>";
+      html += "</div>";
+      if (p.rationale) {
+        html += '<div class="rationale">' + escapeHtml(p.rationale) + "</div>";
       }
+    } else {
+      html += '<div class="hint">' +
+        escapeHtml(option.waiting_place_unavailable_reason || "Nenhum lugar próximo encontrado.") +
+        "</div>";
     }
+    html += "</div>";
+    return html;
+  }
+
+  function renderResult(data) {
+    var options = data.options || [];
+    if (!options.length) {
+      renderError("Nenhuma opção de viagem disponível no momento.");
+      return;
+    }
+
+    var html = "";
+    options.forEach(function (option) {
+      html += '<div class="card option">';
+      html += "<h2><span>" + escapeHtml(OPTION_TITLES[option.label] || option.label) + "</span>";
+      if (option.wait_minutes) {
+        html += '<span class="wait-badge">espera ~' + option.wait_minutes + " min</span>";
+      }
+      html += "</h2>";
+      html += '<div class="row"><span class="label">Saia às</span><span class="value big">' +
+        escapeHtml(option.departure_time) + "</span></div>";
+      if (option.arrival_time) {
+        html += '<div class="row"><span class="label">Chegada estimada</span><span class="value">' +
+          escapeHtml(option.arrival_time) + "</span></div>";
+      }
+      html += '<div class="row"><span class="label">Tarifa estimada</span><span class="value">R$ ' +
+        Number(option.estimated_fare).toFixed(2) + "</span></div>";
+
+      if (option.wait_minutes) {
+        html += renderWaitingPlace(option);
+      }
+
+      html += "</div>";
+    });
 
     resultEl.innerHTML = html;
   }

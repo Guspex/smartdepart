@@ -1,7 +1,9 @@
-"""Contract tests for the "delta > 30 min" response shapes (tasks.md T025):
-waiting place found, and waiting place unavailable — contracts/bs_uber_route_service.md.
+"""Contract tests for the earlier-departure options' waiting-place shapes (tasks.md T025;
+research.md §20): waiting place found, and waiting place unavailable — both are now
+per-option fields inside the 3-option response, not a single top-level
+waiting_place_suggested flag gated by a 30-minute delta.
 
-Mock response objects use PascalCase attributes (ErrorCode, RecommendedTime, ...), matching
+Mock response objects use PascalCase attributes (ErrorCode, OptionsJson, ...), matching
 what `service.process_input()` actually returns live: the raw IRIS-side message object, not
 the Python-side snake_case RouteRecommendationMessage (see research.md §14).
 """
@@ -30,57 +32,46 @@ def _stub_service(response):
     return "1", SimpleNamespace(process_input=lambda payload: ("1", response))
 
 
-def test_delta_gt_30_min_with_waiting_place_found():
-    response = SimpleNamespace(
-        ErrorCode="",
-        TripRequestId=2,
-        RecommendedTime="19:20",
-        EstimatedArrivalTime="19:50",
-        EstimatedFare=19.50,
-        DeltaMinutes=50,
-        WaitingPlaceSuggested=True,
-        WaitingPlaceName="Cafe Central",
-        WaitingPlaceAddress="Rua Augusta, 500",
-        WaitingPlaceCategory="cafe",
-        WaitingPlaceRating=4.6,
-        WaitingPlaceDistanceKm=0.4,
-        WaitingPlaceRationale="Closest highly-rated match",
-        WaitingPlaceUnavailableReason="",
-    )
+def test_earlier_option_with_waiting_place_found():
+    options = [
+        {"label": "ideal", "wait_minutes": 0, "departure_time": "19:20",
+         "arrival_time": "19:50", "estimated_fare": 19.50,
+         "waiting_place": None, "waiting_place_unavailable_reason": None},
+        {"label": "30min_earlier", "wait_minutes": 30, "departure_time": "18:50",
+         "arrival_time": "19:20", "estimated_fare": 17.20,
+         "waiting_place": {
+             "name": "Cafe Central", "address": "Rua Augusta, 500", "category": "cafe",
+             "rating": 4.6, "distance_km": 0.4,
+             "rationale": "Closest highly-rated match",
+         },
+         "waiting_place_unavailable_reason": None},
+    ]
+    response = SimpleNamespace(ErrorCode="", TripRequestId=2, OptionsJson=json.dumps(options))
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):
         status, payload = _call(
             {"origin": "A", "destination": "B", "target_time": "18:30"}
         )
     assert status.startswith("200")
-    assert payload["waiting_place_suggested"] is True
-    assert payload["waiting_place"]["name"] == "Cafe Central"
-    assert payload["waiting_place"]["rationale"] == "Closest highly-rated match"
+    earlier = payload["options"][1]
+    assert earlier["waiting_place"]["name"] == "Cafe Central"
+    assert earlier["waiting_place"]["rationale"] == "Closest highly-rated match"
 
 
-def test_delta_gt_30_min_but_no_waiting_place_available():
-    response = SimpleNamespace(
-        ErrorCode="",
-        TripRequestId=3,
-        RecommendedTime="19:20",
-        EstimatedArrivalTime="19:50",
-        EstimatedFare=19.50,
-        DeltaMinutes=50,
-        WaitingPlaceSuggested=True,
-        WaitingPlaceName="",
-        WaitingPlaceAddress="",
-        WaitingPlaceCategory="",
-        WaitingPlaceRating=0.0,
-        WaitingPlaceDistanceKm=0.0,
-        WaitingPlaceRationale="",
-        WaitingPlaceUnavailableReason="No nearby waiting place found within 1.0 km",
-    )
+def test_earlier_option_with_no_waiting_place_available():
+    options = [
+        {"label": "30min_earlier", "wait_minutes": 30, "departure_time": "18:50",
+         "arrival_time": "19:20", "estimated_fare": 17.20,
+         "waiting_place": None,
+         "waiting_place_unavailable_reason": "No nearby waiting place found within 1.0 km"},
+    ]
+    response = SimpleNamespace(ErrorCode="", TripRequestId=3, OptionsJson=json.dumps(options))
     with patch("production.wsgi.app.director.create_business_service",
                return_value=_stub_service(response)):
         status, payload = _call(
             {"origin": "A", "destination": "B", "target_time": "18:30"}
         )
     assert status.startswith("200")
-    assert payload["waiting_place_suggested"] is True
-    assert payload["waiting_place"] is None
-    assert payload["waiting_place_unavailable_reason"] == "No nearby waiting place found within 1.0 km"
+    option = payload["options"][0]
+    assert option["waiting_place"] is None
+    assert option["waiting_place_unavailable_reason"] == "No nearby waiting place found within 1.0 km"

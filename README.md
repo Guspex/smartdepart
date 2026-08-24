@@ -14,9 +14,11 @@ Embeddings e arquitetura de componentes").
 
 `production/wsgi/static/index.html` — a single self-contained page (no build step, no
 framework) served by the same WSGI app at `GET /`. Origin, destination, and "what time do
-you need to arrive" go in; the page calls `POST /api/uber-route/recommend` and renders the
-recommended departure time, estimated arrival, fare, and (when triggered) the waiting-place
-card. See tasks.md's "Post-MVP Addition" section for what was and wasn't verified live.
+you need to arrive" go in; the page calls `POST /api/uber-route/recommend` and renders three
+comparable departure options — leave now, leave 30 minutes early, or leave 60 minutes early —
+each with its own fare, and a nearby waiting-place suggestion for the two earlier options
+(research.md §20). See tasks.md's "Post-MVP Addition" sections for what was and wasn't
+verified live.
 
 **Accessing it live**: the frontend is registered as an IRIS Web Application at `/uberapp`
 (see `deploy/UberRouteSetup.cls`, run once with `do ##class(UberRoute.Setup).CreateWebApp()`
