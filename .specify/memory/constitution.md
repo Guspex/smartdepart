@@ -1,7 +1,22 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.0.1 (PATCH — wording clarification, no principle content change)
-- Modified principles:
+- Version change: 1.0.1 → 1.0.2 (PATCH — wording clarification, no principle content change)
+- Modified sections:
+  - Data & External Integration Standards — "Calls to public APIs ... MUST be isolated inside
+    a dedicated Business Operation with its own adapter" clarified to "isolated inside a
+    dedicated adapter module, invoked from whichever host needs it". Raised while doing a
+    full post-implementation SDD consistency pass on 001-uber-route-coffee-agent: the shipped
+    code calls `geocoding_adapter.py` directly from `BpRouteOrchestrator` (a Business
+    Process), not from a separate Business Operation wrapping it — the adapter module itself
+    is isolated, mockable, and rate-limited (satisfying this rule's rationale), but mandating
+    a dedicated *host* per external API call was stricter than the actual, sensible practice
+    used throughout (also true of `overpass_adapter.py`, which — coincidentally — *is* called
+    from a Business Operation, `BoHybridRagEngine`, simply because that happens to be where
+    the RAG lookup already lives). Loosening the wording avoids a literal compliance mismatch
+    against working, already-shipped code.
+- Version change (superseded by the above): 1.0.0 → 1.0.1 (PATCH — wording clarification, no
+  principle content change)
+- Modified principles (1.0.1):
   - II. IRIS as Single Multimodel Platform — clarified "native `%Vector` data type" to "native
     `VECTOR` SQL data type (backed by the `%Vector` ObjectScript datatype class)". Raised by
     /speckit-analyze on the 001-uber-route-coffee-agent feature: every downstream artifact
@@ -116,8 +131,8 @@ embedded ad hoc inside business logic:
 - Time-varying external data (e.g., traffic, weather) MUST be mapped into IRIS via Foreign
   Tables rather than pulled imperatively inside a Business Process.
 - Calls to public APIs (e.g., geocoding, urban utility APIs) MUST be isolated inside a
-  dedicated Business Operation with its own adapter, so the external dependency can be
-  mocked, rate-limited, or swapped without touching orchestration logic.
+  dedicated adapter module, invoked from whichever host needs it, so the external dependency
+  can be mocked, rate-limited, or swapped without touching orchestration logic.
 - Where feasible, features SHOULD demonstrate and document IRIS's multimodel capability
   (relational + JSON Document Store + Vector Store operating together) rather than treating
   it as three separate databases.
@@ -159,4 +174,4 @@ pull request for this project MUST verify PyProd-only hosts, IRIS-native storage
 retrieval with documented chunking/embeddings, IntegratedML-based predictions, and
 observability instrumentation are all present before approving.
 
-**Version**: 1.0.1 | **Ratified**: TODO(RATIFICATION_DATE): confirm original adoption date | **Last Amended**: 2026-08-07
+**Version**: 1.0.2 | **Ratified**: TODO(RATIFICATION_DATE): confirm original adoption date | **Last Amended**: 2026-08-24

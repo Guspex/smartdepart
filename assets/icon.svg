@@ -1,0 +1,9 @@
+<svg viewBox="0 0 100 104" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Smart Depart mark: a map pin with a coffee cup">
+  <!-- Map pin, solid mint fill -->
+  <path d="M50 4C31.775 4 17 18.775 17 37C17 61 50 100 50 100C50 100 83 61 83 37C83 18.775 68.225 4 50 4Z" fill="#35c48f"/>
+  <!-- Coffee cup cut into the pin, dark, so the mark reads on any background -->
+  <path d="M36 28H62L58 50Q57.4 54 53 54H45Q40.6 54 40 50Z" fill="#0b0f14"/>
+  <path d="M62 33Q72 33 72 40Q72 47 62 47" fill="none" stroke="#0b0f14" stroke-width="4" stroke-linecap="round"/>
+  <path d="M42 26C40 22 44 20 42 16C40 12 44 10 42 7" fill="none" stroke="#0b0f14" stroke-width="3.4" stroke-linecap="round" opacity="0.9"/>
+  <path d="M56 26C54 22 58 20 56 16C54 12 58 10 56 7" fill="none" stroke="#0b0f14" stroke-width="3.4" stroke-linecap="round" opacity="0.9"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg viewBox="0 0 440 110" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Smart Depart">
+  <g transform="translate(2 3) scale(0.96)">
+    <path d="M50 4C31.775 4 17 18.775 17 37C17 61 50 100 50 100C50 100 83 61 83 37C83 18.775 68.225 4 50 4Z" fill="#35c48f"/>
+    <path d="M36 28H62L58 50Q57.4 54 53 54H45Q40.6 54 40 50Z" fill="#0b0f14"/>
+    <path d="M62 33Q72 33 72 40Q72 47 62 47" fill="none" stroke="#0b0f14" stroke-width="4" stroke-linecap="round"/>
+    <path d="M42 26C40 22 44 20 42 16C40 12 44 10 42 7" fill="none" stroke="#0b0f14" stroke-width="3.4" stroke-linecap="round" opacity="0.9"/>
+    <path d="M56 26C54 22 58 20 56 16C54 12 58 10 56 7" fill="none" stroke="#0b0f14" stroke-width="3.4" stroke-linecap="round" opacity="0.9"/>
+  </g>
+  <text x="118" y="57" font-family="'Helvetica Neue', Arial, sans-serif" font-size="40" font-weight="800" letter-spacing="-0.5" fill="#e7edf3">Smart Depart</text>
+  <text x="120" y="78" font-family="'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" letter-spacing="2.2" fill="#93a1b0">ROUTE &amp; COFFEE, TIMED RIGHT</text>
+</svg>

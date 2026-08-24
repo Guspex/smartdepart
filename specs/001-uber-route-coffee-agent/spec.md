@@ -4,7 +4,8 @@
 
 **Created**: 2026-08-07
 
-**Status**: Draft
+**Status**: Implemented — live-verified end-to-end against a running IRIS Community Edition
+instance (see [tasks.md](./tasks.md) T001–T056 and [research.md](./research.md))
 
 **Input**: User description: "SPECS-001: Uber Route & Coffee Recommendation Agent (InterSystems IRIS + PyProd + RAG + IntegratedML) — Precisamos criar uma aplicação inteligente de otimização de viagens da Uber e recomendações locais de apoio. O sistema recebe origem, destino e horário desejado; analisa o melhor momento/tarifa para a viagem e, se houver diferença superior a 30 minutos em relação ao horário sugerido, indica um café próximo para aguardar."
 
@@ -96,7 +97,9 @@ from other candidate places.
   or unsupported area)?
 - What happens when the rider is in an area with no nearby waiting places at all?
 - What happens when the origin or destination text is ambiguous (matches multiple real
-  places)?
+  places)? — **Resolved (research.md §21, FR-013/SC-007)**: when this ambiguity resolves the
+  two addresses to implausibly distant real coordinates, the system rejects the request with
+  a `distance_out_of_range` error instead of computing a nonsensical trip.
 - What happens when external conditions data (e.g., traffic or weather) needed to compute the
   recommendation is temporarily unavailable — does the system degrade gracefully or fail the
   request?
@@ -137,6 +140,11 @@ from other candidate places.
 - **FR-012**: System MUST record each request and the key decision points of its response
   (each option's departure time and fare, and whether a waiting place was found for it) to
   support monitoring and troubleshooting.
+- **FR-013**: *(added post-implementation, research.md §21)* System MUST reject a request
+  where the geocoded origin and destination are implausibly far apart for a single trip
+  (e.g., a vague address resolving to a same-named place in a different city), rather than
+  returning a nonsensical fare/time recommendation, and MUST explain that the addresses need
+  more detail to be resolved correctly.
 
 ### Key Entities
 
@@ -167,6 +175,10 @@ from other candidate places.
   distance (approximately 1 km) of the rider's origin.
 - **SC-006**: Requests with an unrecognized origin or destination receive a clear explanatory
   response, not a silent failure or empty result, 100% of the time.
+- **SC-007**: *(added post-implementation, research.md §21)* Requests where the geocoded
+  origin and destination are implausibly far apart (beyond a single-trip distance) receive a
+  clear explanatory response asking for more address detail, rather than a fare/time
+  recommendation, 100% of the time.
 
 ## Assumptions
 

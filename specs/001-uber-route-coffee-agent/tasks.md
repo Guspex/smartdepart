@@ -5,6 +5,13 @@ description: "Task list template for feature implementation"
 
 # Tasks: Uber Route & Coffee Recommendation Agent
 
+**Status**: T001–T056 complete. Live-verified end-to-end against a running IRIS 2025.3
+Community Edition container (real HTTP requests, not just the mocked test suite) — see the
+"Post-MVP Addition" sections below and [research.md](./research.md) §14–§22 for the full
+deployment/debugging history, including every platform bug found and fixed along the way
+(class-name truncation, a job-crashing IRIS build, `TRAIN MODEL` requiring a PMML workaround,
+a PyTorch/embedded-Python segfault fixed via an ONNX backend). 40/40 automated tests passing.
+
 **Input**: Design documents from `/specs/001-uber-route-coffee-agent/`
 
 **Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md), [data-model.md](./data-model.md), [contracts/bs_uber_route_service.md](./contracts/bs_uber_route_service.md), [quickstart.md](./quickstart.md)

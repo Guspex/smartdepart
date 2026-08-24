@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+  <img src="assets/logo-light.svg" alt="Smart Depart" width="360">
+</picture>
+
 # Uber Route & Coffee Recommendation Agent
 
 A PyProd (InterSystems IRIS Interoperability, pure Python) production that recommends a
