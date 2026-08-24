@@ -7,6 +7,7 @@ orchestration logic (research.md §9).
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Optional
 
@@ -15,6 +16,13 @@ import requests
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "uber-route-coffee-agent/1.0 (SPECS-001 demo)"
 _MIN_INTERVAL_SECONDS = 1.0  # Nominatim usage policy: max 1 request/second, keyless
+
+# Brazilian addresses commonly abbreviate "número" as "nº"/"n°"/"n.º" before a house
+# or km number (e.g. "Rodovia BR 101 nº km 211"). Nominatim's tokenizer doesn't
+# recognize this abbreviation and fails to resolve the whole address as a result —
+# confirmed live: the same address resolves correctly with "nº " stripped, and fails
+# (returns no results) with it present. Strip it before querying.
+_NUMERO_ABBREVIATION = re.compile(r"\bn\.?[°º]\.?\s*", re.IGNORECASE)
 
 _last_call_at = 0.0
 
@@ -29,6 +37,8 @@ def geocode(location_text: str, timeout: float = 5.0) -> Optional[tuple[float, f
     if not location_text or not location_text.strip():
         return None
 
+    query_text = _NUMERO_ABBREVIATION.sub("", location_text)
+
     elapsed = time.monotonic() - _last_call_at
     if elapsed < _MIN_INTERVAL_SECONDS:
         time.sleep(_MIN_INTERVAL_SECONDS - elapsed)
@@ -36,7 +46,7 @@ def geocode(location_text: str, timeout: float = 5.0) -> Optional[tuple[float, f
     try:
         response = requests.get(
             NOMINATIM_URL,
-            params={"q": location_text, "format": "json", "limit": 1},
+            params={"q": query_text, "format": "json", "limit": 1},
             headers={"User-Agent": USER_AGENT},
             timeout=timeout,
         )

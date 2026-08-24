@@ -724,3 +724,76 @@ distance/time/day not being read off the screenshot precisely).
 **Verified live**: the same Florianópolis trip that produced `-R$2.08` now returns
 `R$14.40` — plausible for a short trip, and consistent with the cheapest fares actually
 observed in the training data (minimum `R$9.60` at `distance_km≈2`).
+
+## 18. `location_not_found` on valid addresses — Nominatim can't parse the Brazilian "nº"
+abbreviation
+
+**Finding**: a live user test with two complete, real Florianópolis/São José addresses
+returned `422 location_not_found` for the destination — *"Rodovia BR 101 nº km 211, 7235 -
+Distrito Industrial, São José - SC"*. Isolated by calling `geocode()` directly on
+progressively simplified variants of the same string:
+```
+'Rodovia BR 101 nº km 211, 7235 - Distrito Industrial, São José - SC' -> None
+'Rodovia BR 101, km 211, 7235 - Distrito Industrial, São José - SC'   -> (-27.618, -48.647)
+```
+The only difference is the `"nº "` token — a standard Brazilian abbreviation for "número"
+("number"), commonly placed before a house/km number. Nominatim's query tokenizer doesn't
+recognize this abbreviation and fails to resolve the *entire* address when it's present, even
+though every other token is correct and the address genuinely exists. Confirmed the origin
+address (which had no `"nº"` in it) resolved correctly on the very first end-to-end test that
+triggered this bug — only the destination, which had it, failed, matching the hypothesis
+exactly.
+
+**Fixed** in `production/adapters/geocoding_adapter.py`: strip `\bn\.?[°º]\.?\s*`
+(case-insensitive; matches `nº`, `n°`, `n.º`, `N°`, etc. — both dot-before and dot-after
+orderings, since Brazilian usage varies) from the query text before sending it to Nominatim,
+leaving the actual number intact (`"nº km 211"` → `"km 211"`). This is a query-normalization
+step, not a change to what's stored/returned to the user — the original `location_text` is
+still what's logged/persisted. (First attempt used `\bn[°º]\.?\s*`, only matching the
+dot-after form `nº.` — missed the equally common dot-before form `n.º`; caught immediately by
+`tests/unit/test_geocoding_adapter.py`'s variant test, which now covers both orderings.)
+
+**Verified live**: the exact address pair from the failing report now both resolve and the
+full request succeeds end-to-end (`200 OK`, real fare `R$24.08`) instead of `422
+location_not_found`.
+
+## 19. Restarting the container after it sat stopped for several days: production needs
+`RecoverProduction()`, not just `StartProduction()`
+
+**Finding**: `docker start smart-depart-iris` (after the container had been `Exited` for 5
+days) brought IRIS itself back up cleanly — superserver, private webserver, and even the
+production's prior auto-start all logged as successful in `messages.log`. But the very first
+live request hung indefinitely (client-side timeout), and `Ens_Util.Log` showed `ERRO
+<Ens>ErrJobRegistryNotClean: Global de registro de processo para '1089' não está limpa` for
+`BsUberRouteService` right as the request came in. Manually calling `Ens.Director
+.StopProduction()` then `.StartProduction()` (the pattern used throughout §14/§16/§18 to
+reload changed Python code) made things *worse*, not better: `StartProduction` refused with
+`ErrProductionNotShutdownCleanlyUberRoute.UberRouteProduction`.
+
+**Root cause**: the container had been stopped with a plain `docker stop` (not a graceful
+IRIS shutdown from inside), so IRIS's own production-state bookkeeping was left dirty —
+consistent with the general IRIS container guidance that ungraceful stops leave the write
+image journal (WIJ) and related state dirty, requiring recovery on next start. IRIS's own
+crash-recovery (journal replay, seen in the startup log) fixed the *database* — it did not fix
+the production's own "was I shut down cleanly" state, which is separate bookkeeping.
+
+**Fixed**: `##class(Ens.Director).RecoverProduction()` (no arguments) — found by introspecting
+`Ens.Director`'s method list rather than guessing at a `force`/`clean` flag on
+`StartProduction` (which doesn't have one; a naive 4-positional-arg guess raised
+`RuntimeError: <PARAMETER>StartProduction^Ens.Director.1`, since its actual signature is just
+`StartProduction(pProductionName)`). After `RecoverProduction()`, `IsProductionRunning()`
+correctly reported `0`, and a normal `StartProduction()` then succeeded and the app worked
+end-to-end immediately.
+
+**Practical takeaway for any future container restart after a non-trivial stopped period**:
+check `Ens.Director.IsProductionRunning(name)` first; if `StartProduction` raises
+`ErrProductionNotShutdownCleanly`, call `RecoverProduction()` once (no args) before retrying
+`StartProduction` — don't just retry `StopProduction`/`StartProduction` in a loop, since
+`StopProduction` on an already-not-running production doesn't clear this particular flag.
+
+**Unrelated, cosmetic**: `docker inspect`'s health status shows `unhealthy` on this container
+regardless of the above — its `HEALTHCHECK` command is itself broken (`/bin/sh: 1:
+[/irisHealth.sh]: not found`, a malformed/missing script baked into this image), not a
+reflection of whether the app actually works. Confirmed the app works via direct HTTP calls
+independent of this label; not fixed (would require recreating the container with a corrected
+health-check command).
