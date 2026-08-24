@@ -63,10 +63,11 @@ in one chunk — the chunker only splits when a description exceeds ~512 tokens.
 and alternatives: [research.md §4](specs/001-uber-route-coffee-agent/research.md).
 
 **Embedding model**: `sentence-transformers/all-MiniLM-L6-v2`, run locally via Python (no
-external API call, no API key) — 384-dimension vectors. Chosen over
-`text-embedding-3-small` specifically to avoid an external network/API-key dependency for
-a Community Edition demo; the embedding call is isolated in
-`production/hosts/bo_hybrid_rag_engine.py:_embed()`, so swapping providers later is a
+external API call, no API key) — 384-dimension vectors, loaded with `backend="onnx"` rather
+than the library's default PyTorch backend, which reliably segfaulted IRIS's embedded-Python
+worker process (research.md §22). Chosen over `text-embedding-3-small` specifically to avoid
+an external network/API-key dependency for a Community Edition demo; the embedding call is
+isolated in `production/hosts/bo_hybrid_rag_engine.py:_embed()`, so swapping providers later is a
 contained change. Full rationale: [research.md §3](specs/001-uber-route-coffee-agent/research.md).
 
 **Indexing**: `UberRoute.WaitingPlace.Embedding` is `VECTOR(DOUBLE, 384)` with an
@@ -94,12 +95,14 @@ text generation.
 ## Known environment limitations (this session, IRIS 2026.1 Community, 2026-08-07)
 
 - `TRAIN MODEL FarePredictor` crashes (segfault in the AutoML provider) on the tested
-  Docker image — `CREATE MODEL`/the predictive SQL surface are verified correct, but no
-  request will get a real fare prediction until a working AutoML (or PMML-imported)
-  provider is available. See [tasks.md T010/T013](specs/001-uber-route-coffee-agent/tasks.md).
-- `sentence-transformers` was not installed/run in this session (time budget) — the
-  ingestion script and `BO_HybridRAGEngine._embed()` are written against its standard API
-  but not executed end to end with a real model.
+  Docker image — resolved by importing a PMML model instead (research.md §16), which needs
+  no AutoML provider at all.
+- `sentence-transformers`'s **default backend (PyTorch) reliably segfaults** the IRIS
+  worker process mid-`encode()` on this platform (confirmed via `caught signal 11` in
+  `messages.log`, 6/6 reproductions) — fixed by loading it with `backend="onnx"` instead
+  (research.md §22), which does not reproduce the crash. Waiting-place suggestions are now
+  live end to end, backed by real nearby places fetched from the Overpass API
+  (`production/adapters/overpass_adapter.py`) rather than a fixed seed dataset.
 - The PyProd CLI (`intersystems_pyprod production.py`) must be run **inside** IRIS's own
   embedded Python, not from an external `pip install`; see
   [quickstart.md step 5](specs/001-uber-route-coffee-agent/quickstart.md).

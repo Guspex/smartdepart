@@ -337,3 +337,21 @@ than renumbering T001-T047.
   reload — research.md §14/§16/§19), and confirmed `POST /uberapp/api/uber-route/recommend`
   returns all three options with real fares and waiting-place suggestions for a real
   Florianópolis address pair.
+- [X] T055 Reject implausibly large geocoded distances instead of computing a nonsense
+  trip (research.md §21) — a live test with a vague address (`"SENAI, São José"`, no
+  street/state) geocoded to a same-named place 341 km away, producing an implausible fare
+  and a day-wraparound-inconsistent departure/arrival pair. Added a 100 km sanity cap in
+  `BpRouteOrchestrator` and a new `distance_out_of_range` (422) contract error. 36/36 tests
+  passing.
+- [X] T056 Make waiting-place suggestions actually work end to end (research.md §22):
+  installed `sentence-transformers`, populated `UberRoute.WaitingPlace` (was empty — the
+  seed ingestion had never been run), and added `production/adapters/overpass_adapter.py`
+  (live nearby-place lookup via the free Overpass/OpenStreetMap API, chosen over the paid
+  Google Places API per the user's explicit direction) wired into `BoHybridRagEngine` so any
+  city has real candidates, not just wherever the seed dataset covered. Found and fixed a
+  live-only `VECTOR_COSINE` string/float type bug in the hybrid-search scoring, and — the
+  session's biggest platform finding — that `sentence-transformers`'s default PyTorch
+  backend reliably segfaults IRIS's embedded-Python worker process (confirmed via
+  `messages.log`, 6/6 reproductions); fixed by loading the model with `backend="onnx"`
+  instead. Live-verified end to end for both a Florianópolis and a São Paulo address pair,
+  each returning a real waiting-place suggestion. 40/40 tests passing.

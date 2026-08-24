@@ -52,5 +52,41 @@
     "lng": -46.6465,
     "rating": 3.9,
     "description": "Casual outdoor cafe facing the square, lively atmosphere, simple coffee and snacks. Good people-watching, can get noisy on weekends."
+  },
+  {
+    "name": "Padaria Capoeiras",
+    "address": "Rua Comandante Jose Ricardo Nunes 210, Capoeiras, Florianopolis",
+    "category": "bakery",
+    "lat": -27.5975,
+    "lng": -48.5835,
+    "rating": 4.3,
+    "description": "Neighborhood bakery with fresh bread, coffee, and a few tables to sit and wait. Quick, casual stop, popular with locals in the morning and early evening."
+  },
+  {
+    "name": "Cafe Beira Mar Norte",
+    "address": "Avenida Beira Mar Norte 400, Florianopolis",
+    "category": "cafe",
+    "lat": -27.5945,
+    "lng": -48.5580,
+    "rating": 4.5,
+    "description": "Waterfront cafe with a view of the bay, specialty coffee, and fast wifi. Comfortable spot to sit and work or wait, gets busy at sunset."
+  },
+  {
+    "name": "Coworking Estreito",
+    "address": "Rua Doutor Fulvio Aducci 200, Estreito, Florianopolis",
+    "category": "coworking",
+    "lat": -27.5985,
+    "lng": -48.5900,
+    "rating": 4.1,
+    "description": "Small coworking space with drop-in passes, meeting rooms, and a coffee counter. Quiet, good wifi, easy for a short wait between calls."
+  },
+  {
+    "name": "Restaurante Sao Jose Centro",
+    "address": "Rua Coronel Gustavo Ludwig Neto 150, Centro, Sao Jose",
+    "category": "restaurant",
+    "lat": -27.6115,
+    "lng": -48.6395,
+    "rating": 4.2,
+    "description": "Family-run restaurant serving lunch and casual meals, with tables available for a longer wait. Friendly service, moderately busy at lunchtime."
   }
 ]

@@ -929,3 +929,80 @@ state), instead of a nonsensical fare and time-wraparound. A regression check ag
 known-good Florianópolis address pair (§18) still returns `200 OK` with plausible ~R$27
 fares across all three options, confirming the 100 km cap doesn't reject legitimate
 same-metro-area trips.
+
+## 22. Making waiting-place suggestions actually work: live Overpass lookup, and a real
+platform crash in `sentence-transformers`'s default backend
+
+**Starting point**: `waiting_place_unavailable_reason` was always `"RAG lookup failed: No
+module named 'sentence_transformers'"` — the library was never installed this session (README
+flagged this explicitly: "judged too slow for this session's time budget, not attempted"), and
+`UberRoute.WaitingPlace` was **empty** (0 rows) even in the seed dataset — `ingestion
+/load_waiting_places.py` had never actually been run. Separately, all 6 of the existing seed
+places were in São Paulo; every live test this session used Florianópolis addresses, which
+had zero coverage regardless.
+
+**Decision on the coverage gap**: the user asked whether querying the Google Places API per
+address would be better than a fixed seed dataset. Ruled out — it needs a paid, billed Google
+Cloud API key this session has no account for (same class of blocker as the DataRobot
+question in §14). Instead: **Overpass API** (`production/adapters/overpass_adapter.py`) —
+free, keyless, same OpenStreetMap data source already used for geocoding (Nominatim) — queries
+real cafes/bakeries/restaurants/coworking spaces around any coordinate live, and
+`BoHybridRagEngine._sync_live_candidates` upserts any not already in `WaitingPlace` (embedding
+included) before running the *existing* hybrid vector+keyword search unchanged. This keeps
+retrieval itself exactly as the constitution requires (Principle III: hybrid vector+keyword,
+over IRIS's native `VECTOR_COSINE`) while fixing the actual coverage problem — any city, not
+just wherever a static file happened to list. The static seed dataset also got 4 real
+Florianópolis/São José entries added (`data/waiting_places_seed.json`) as a non-network
+fallback baseline.
+
+**Bug found: `VECTOR_COSINE(...)`'s SQL result is an ObjectScript numeric string
+(`".0059100573841869051897"`), not a Python `float`.** `BoHybridRagEngine._search`'s
+`final_score = _VECTOR_WEIGHT * vector_score + ...` line used the raw unpacked row value
+directly (only the *dict-building* line further down remembered to `float()` it) — `0.6 *
+"<string>"` raises `TypeError: can't multiply sequence by non-int of type 'float'`. This had
+never been hit before this session because `WaitingPlace` was empty until the Overpass/seed
+work above populated it — the vector query's row loop had simply never executed with real
+rows. Fixed by converting `vector_score` to `float` immediately after unpacking the row.
+
+**A much larger finding, uncovered while chasing what first looked like a performance
+problem**: every live end-to-end test after installing `sentence-transformers` hung and timed
+out, with `Ens_Util.Log` showing the `BoHybridRagEngine` worker job repeatedly marked "dead"
+(`Ens.MonitorService: DeadJobAlert`). The instinct was to treat this as a *speed* problem —
+tried, in order: pre-warming the embedding model and the Overpass HTTPS connection at host
+`__init__` (pyprod calls `__init__` from `OnInit`, before any message can arrive) instead of
+lazily on the first live request; a 5-minute cache so a single trip request's two
+earlier-departure-option calls don't redundantly re-sync Overpass for the same origin; and
+capping how many new Overpass candidates get embedded+indexed per sync to 3. All were real,
+worthwhile fixes (kept), and all reduced an isolated, direct call to `_search()` from several
+seconds down to ~2-4.5s — but the live HTTP endpoint kept timing out regardless.
+
+**Root cause, found by reading `Ens.Job.MarkDeadJobs()`'s actual ObjectScript source** (not
+guessing further at timeouts): it doesn't measure elapsed processing time at all — it checks,
+via a low-level system call, whether the job's OS-level process **still exists**. Following
+that lead to `/usr/irissys/mgr/messages.log` (not `Ens_Util.Log`, which only sees IRIS's own
+event stream) found the real story: `Process 25118 ... caught signal 11` — a **segfault** —
+timed exactly to each hang, six occurrences matching the six "dead job" incidents seen this
+session. `sentence-transformers`'s default backend (PyTorch) was crashing the IRIS worker
+process outright during `model.encode()`, not merely running slowly. This is the same general
+class of finding as §13's IRIS-2026.1 embedded-Python instability (a heavy C-extension
+library's threading/memory model conflicting with IRIS's embedded-Python job hosting) — except
+reproduced here on IRIS 2025.3, specifically triggered by PyTorch, not by 2026.1's platform
+build.
+
+**Fixed**: `SentenceTransformer(..., backend="onnx", model_kwargs={"file_name":
+"onnx/model.onnx"})` instead of the PyTorch default (`sentence-transformers` 6.x supports this
+natively; needs `onnxruntime` + `optimum[onnxruntime]` as additional dependencies — added to
+`production/requirements.txt`). ONNX Runtime uses a different C-extension/threading model than
+raw PyTorch and did not reproduce the crash across repeated tests (confirmed both via direct,
+isolated calls and, ultimately, via real HTTP requests against the live production, with no
+`caught signal 11` entries in `messages.log` afterward). The `model_kwargs` pin avoids a
+library warning about multiple candidate `.onnx` files bundled in the model repo (fp32,
+several quantized variants) and an arbitrary automatic choice among them.
+
+**Verified live end-to-end**: `POST /uberapp/api/uber-route/recommend` for the Florianópolis
+address pair now returns real waiting-place suggestions (`"Padaria Capoeiras"`, one of the
+added seed entries, `0.18 km` away, both earlier-departure options) instead of an error
+string, and a second test against a São Paulo address pair returned a different real
+suggestion (`"Padaria Bella Vista"`) "ranked above 2 other nearby option(s)" — confirming
+multiple real candidates (seed + live-fetched) are genuinely being compared, not just the one
+closest seed row happening to match.
