@@ -117,3 +117,7 @@ required — IRIS/pyprod calls are mocked):
 pip install -r production/requirements.txt
 pytest tests/
 ```
+
+## License
+
+[MIT](LICENSE)
