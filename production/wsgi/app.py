@@ -28,6 +28,7 @@ _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 _STATUS_BY_ERROR_CODE = {
     "invalid_request": "400 Bad Request",
     "location_not_found": "422 Unprocessable Entity",
+    "distance_out_of_range": "422 Unprocessable Entity",
     "prediction_unavailable": "503 Service Unavailable",
 }
 

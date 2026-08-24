@@ -103,6 +103,19 @@ if *every* option failed.
 }
 ```
 
+### Response — 422 Unprocessable Entity (FR-011: geocoded distance implausible)
+
+Free-text queries that omit enough detail (e.g. `"SENAI, São José"` with no street or state)
+can resolve to a same-named place hundreds of km away in a different city — geocoding "found"
+something, but not a location a single Uber trip could plausibly be to/from (research.md §21).
+
+```json
+{
+  "error": "distance_out_of_range",
+  "message": "Origin and destination resolved to locations 341 km apart, which is too far for a single trip — please include more detail (street, city, state) so the addresses can be resolved correctly"
+}
+```
+
 ### Response — 503 Service Unavailable (no fare prediction available for any option)
 
 ```json

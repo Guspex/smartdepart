@@ -77,6 +77,14 @@ _WAITING_PLACE_RADIUS_KM = 1.0
 _BASE_SPEED_KMH = 25.0
 _DEFAULT_CONGESTION_FACTOR = 1.0
 
+# Sanity cap on a single Uber-style trip's straight-line distance (research.md §21).
+# Vague free-text queries (e.g. "SENAI, São José" with no street or state) can resolve to
+# a same-named place in a completely different city hundreds of km away — Nominatim has no
+# way to know which "São José" the rider meant. Rather than silently computing a nonsensical
+# multi-hour "trip" (implausible fare, and arrival/departure times that wrap across midnight
+# inconsistently), treat an implausibly large geocoded distance as an unresolved location.
+_MAX_TRIP_DISTANCE_KM = 100.0
+
 
 def _parse_hhmm(value: str) -> Optional[tuple[int, int]]:
     try:
@@ -166,6 +174,21 @@ class BpRouteOrchestrator(BusinessProcess):
         distance_km = _haversine_km(
             origin_coords[0], origin_coords[1], destination_coords[0], destination_coords[1]
         )
+
+        if distance_km > _MAX_TRIP_DISTANCE_KM:
+            log_event("BpRouteOrchestrator", "rule_outcome", session_id=session_id,
+                       outcome="error", reason="geocoded distance implausible",
+                       distance_km=round(distance_km, 1))
+            response = RouteRecommendationMessage(
+                error_code="distance_out_of_range",
+                error_message=(
+                    f"Origin and destination resolved to locations {distance_km:.0f} km "
+                    "apart, which is too far for a single trip — please include more detail "
+                    "(street, city, state) so the addresses can be resolved correctly"
+                ),
+            )
+            return self.OKStatus(), response
+
         day_of_week = datetime.now().isoweekday()
 
         # Naive departure: "if traffic at my arrival hour is typical, when would I need

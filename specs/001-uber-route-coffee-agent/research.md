@@ -891,3 +891,41 @@ earlier-departure options each carrying a `waiting_place_unavailable_reason` (`s
 transformers` isn't installed in this session — a pre-existing, already-documented gap,
 unrelated to this change). Full local test suite (35 tests, including two integration test
 files rewritten for the new response shape) passes.
+
+## 21. Vague addresses can geocode to a same-named place hundreds of km away — added a
+distance sanity check
+
+**Finding**: a live user test with destination `"SENAI, São José"` (a real Brazilian training
+institute, but no street or state given — "São José" alone is a common city name in multiple
+states) returned an implausible fare of **R$1163.71** and, worse, an arrival time
+(`13:19`) displayed as *earlier than* the departure time (`20:16`) for the same option — a
+result that made no sense on its face. Root-caused by calling `geocode()` directly on both
+addresses: the destination resolved to coordinates **341 km** away from the origin (verified
+via haversine distance on the returned lat/lng), a completely different city than the rider
+meant. `FarePredictor` then correctly priced *that* (wrong) 341 km trip, and the ~13.6-hour
+naive travel-time estimate this produced (`341 km / 25 km/h` baseline speed) pushed the naive
+departure calculation back across a full day boundary — `_add_minutes`'s `% (24*60)` wraparound
+has no day-tracking, so a departure "yesterday at 20:16" for an "18:30 today" arrival displays
+with no indication it isn't the same calendar day, and the two independently-recomputed
+duration estimates (naive vs. per-candidate) diverged enough across that wraparound to show an
+`arrival_time` that looks earlier than the `departure_time`. This is the same underlying class
+of issue as §17 (an ML model or a formula extrapolating a nonsensical output when fed
+implausible input) and §18 (geocoding ambiguity) combined — not a new kind of bug, but their
+combination exposed a gap neither fix alone covered.
+
+**Fixed**, at the input-validation level rather than trying to patch the day-wraparound math:
+`BpRouteOrchestrator` now checks `distance_km` against a **`_MAX_TRIP_DISTANCE_KM = 100.0`**
+sanity cap immediately after geocoding both addresses (generous for a single-city/metro-area
+Uber trip; the training data in `data/trip_history_seed.csv` tops out at `DistanceKm≈20`) and
+returns a new `distance_out_of_range` error (`422`, alongside `location_not_found` in the
+contract) instead of computing a "trip" at all. This is deliberately a *distance* check, not a
+same-city/same-state string check on the input addresses — Nominatim genuinely did "resolve"
+both strings to real coordinates, so there was nothing malformed to reject earlier; the
+implausibility only becomes visible once both are geocoded and compared.
+
+**Verified live**: the exact `"SENAI, São José"` request now returns `422
+distance_out_of_range` with a message asking the rider to add more detail (street, city,
+state), instead of a nonsensical fare and time-wraparound. A regression check against the
+known-good Florianópolis address pair (§18) still returns `200 OK` with plausible ~R$27
+fares across all three options, confirming the 100 km cap doesn't reject legitimate
+same-metro-area trips.

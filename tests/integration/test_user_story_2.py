@@ -101,3 +101,21 @@ def test_unresolvable_location_returns_error_before_any_prediction():
 
     assert response.error_code == "location_not_found"
     bp.send_request_sync.assert_not_called()
+
+
+def test_implausible_geocoded_distance_returns_error_before_any_prediction():
+    """research.md §21: a vague query like "SENAI, São José" can resolve to a same-named
+    place hundreds of km away in a different city — treat that as an unresolved location
+    rather than computing a nonsensical multi-hour "trip"."""
+    bp = _make_bp()
+    bp.send_request_sync = MagicMock()
+    with patch(
+        "production.hosts.bp_route_orchestrator.geocode",
+        side_effect=[(-27.60, -48.58), (-29.25, -51.52)],  # ~341 km apart
+    ):
+        request = TripRequestMessage(session_id="s4", origin="A", destination="SENAI, Sao Jose",
+                                      target_time="18:30")
+        status, response = bp.on_request(request)
+
+    assert response.error_code == "distance_out_of_range"
+    bp.send_request_sync.assert_not_called()
